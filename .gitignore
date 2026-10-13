@@ -1,0 +1,11 @@
+.worktrees/
+.appdata/
+.dotnet/
+.dotnet-cli-home/
+.nuget/
+**/bin/
+**/obj/
+.vs/
+TestResults/
+artifacts/
+recovery/
