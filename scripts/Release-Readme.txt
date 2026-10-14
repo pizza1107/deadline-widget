@@ -18,9 +18,10 @@ plus button on the widget to open the deadline manager.
 
 Uninstall
 ---------
-See the project README for the current manual removal steps. Deadline data is
-stored separately from the program files so it can be preserved during an
-upgrade or removal.
+Run: .\Uninstall-V2.ps1
+
+This removes the program components but preserves deadline data. To remove the
+V2 data directory too, run: .\Uninstall-V2.ps1 -RemoveUserData
 
 Project documentation
 ---------------------

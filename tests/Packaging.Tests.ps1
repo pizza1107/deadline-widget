@@ -8,7 +8,8 @@ $ErrorActionPreference = 'Stop'
 $v2Root = Split-Path $PSScriptRoot -Parent
 $buildScript = Join-Path $v2Root 'scripts/Build-Package.ps1'
 $installScript = Join-Path $v2Root 'scripts/Install-V2.ps1'
-$missing = @($buildScript, $installScript | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+$uninstallScript = Join-Path $v2Root 'scripts/Uninstall-V2.ps1'
+$missing = @($buildScript, $installScript, $uninstallScript | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
 if ($missing.Count -gt 0) {
     Write-Host "FAIL: Missing production packaging scripts: $($missing -join ', ')"
     exit 1
@@ -111,12 +112,13 @@ try {
     $buildResult = & $buildScript @buildArguments
 
     $releaseFiles = @(Get-ChildItem -LiteralPath $releaseRoot -Force | Sort-Object Name)
-    Assert-Equal 4 $releaseFiles.Count 'Release bundle must contain exactly the manager, rmskin, installer, and readme.'
+    Assert-Equal 5 $releaseFiles.Count 'Release bundle must contain exactly the manager, rmskin, installer, uninstaller, and readme.'
     Assert-Equal 'DeadlineWidgetV2.rmskin' $releaseFiles[0].Name 'Release package name is wrong.'
     Assert-Equal 'Install-V2.ps1' $releaseFiles[1].Name 'Release installer is missing.'
     Assert-Equal 'Manager' $releaseFiles[2].Name 'Published manager directory is missing.'
     Assert-True $releaseFiles[2].PSIsContainer 'Manager bundle entry must be a directory.'
     Assert-Equal 'README.txt' $releaseFiles[3].Name 'Release readme is missing.'
+    Assert-Equal 'Uninstall-V2.ps1' $releaseFiles[4].Name 'Release uninstaller is missing.'
 
     $managerRoot = Join-Path $releaseRoot 'Manager'
     foreach ($requiredRuntimeFile in @('DeadlineWidget.Manager.exe', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
@@ -371,6 +373,54 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     Assert-ManagerRolledBack 'CREATE-PROTECTED'
     Assert-True (Test-Path -LiteralPath $v2Backup -PathType Leaf) 'Failure injection did not create the initially absent protected path.'
     Remove-Item -LiteralPath $v2Backup -Force
+
+    $uninstallLocalRoot = Join-Path $testRoot 'Uninstall Local'
+    $uninstallDataRoot = Join-Path $uninstallLocalRoot 'DeadlineWidgetV2'
+    $uninstallManager = Join-Path $uninstallDataRoot 'Manager'
+    $uninstallSkinRoot = Join-Path $testRoot 'Uninstall Skins'
+    $uninstallSkin = Join-Path $uninstallSkinRoot 'DeadlineWidgetV2'
+    $uninstallPluginRoot = Join-Path $testRoot 'Uninstall Plugins'
+    $uninstallStartupRoot = Join-Path $testRoot 'Uninstall Startup'
+    $uninstallLegacy = Join-Path $uninstallLocalRoot 'CourseDeadlineWidget'
+    [void](New-Item -ItemType Directory -Path $uninstallManager, $uninstallSkin, $uninstallPluginRoot, $uninstallStartupRoot, (Join-Path $uninstallDataRoot 'migration-backup/set'), (Join-Path $uninstallDataRoot 'logs'), $uninstallLegacy, (Join-Path $uninstallSkinRoot 'UnrelatedSkin') -Force)
+    [IO.File]::WriteAllText((Join-Path $uninstallManager 'DeadlineWidget.Manager.exe'), 'PROGRAM')
+    [IO.File]::WriteAllText((Join-Path $uninstallSkin 'DeadlineWidgetV2.ini'), 'SKIN')
+    [IO.File]::WriteAllText((Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.dll'), 'PLUGIN')
+    [IO.File]::WriteAllText((Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.root'), 'ROOT')
+    [IO.File]::WriteAllText((Join-Path $uninstallStartupRoot 'DeadlineWidgetV2 Manager.lnk'), 'SHORTCUT')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'deadlines.json'), 'DEADLINES')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'deadlines.backup.json'), 'BACKUP')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'migration-backup/set/manifest.txt'), 'MIGRATION')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'logs/manager.log'), 'LOG')
+    [IO.File]::WriteAllText((Join-Path $uninstallLegacy 'sentinel.txt'), 'LEGACY')
+    [IO.File]::WriteAllText((Join-Path $uninstallSkinRoot 'UnrelatedSkin/sentinel.ini'), 'UNRELATED')
+    $uninstallArguments = @{
+        LocalAppDataRoot = $uninstallLocalRoot
+        SkinRoot = $uninstallSkinRoot
+        PluginRoot = $uninstallPluginRoot
+        StartupRoot = $uninstallStartupRoot
+    }
+
+    & $uninstallScript @uninstallArguments
+
+    Assert-True (-not (Test-Path -LiteralPath $uninstallManager)) 'Default uninstall left the Manager directory.'
+    Assert-True (-not (Test-Path -LiteralPath $uninstallSkin)) 'Default uninstall left the V2 skin.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.dll'))) 'Default uninstall left the bridge DLL.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.root'))) 'Default uninstall left the bridge root file.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $uninstallStartupRoot 'DeadlineWidgetV2 Manager.lnk'))) 'Default uninstall left the startup shortcut.'
+    foreach ($preserved in @('deadlines.json', 'deadlines.backup.json', 'migration-backup/set/manifest.txt', 'logs/manager.log')) {
+        Assert-True (Test-Path -LiteralPath (Join-Path $uninstallDataRoot $preserved) -PathType Leaf) "Default uninstall removed protected data: $preserved"
+    }
+    Assert-Equal 'LEGACY' ([IO.File]::ReadAllText((Join-Path $uninstallLegacy 'sentinel.txt'))) 'Uninstall changed legacy data.'
+    Assert-Equal 'UNRELATED' ([IO.File]::ReadAllText((Join-Path $uninstallSkinRoot 'UnrelatedSkin/sentinel.ini'))) 'Uninstall changed an unrelated skin.'
+
+    [void](New-Item -ItemType Directory -Path $uninstallManager, $uninstallSkin -Force)
+    [IO.File]::WriteAllText((Join-Path $uninstallManager 'DeadlineWidget.Manager.exe'), 'PROGRAM-AGAIN')
+    & $uninstallScript @uninstallArguments -RemoveUserData
+
+    Assert-True (-not (Test-Path -LiteralPath $uninstallDataRoot)) 'Explicit data removal left the validated V2 data root.'
+    Assert-Equal 'LEGACY' ([IO.File]::ReadAllText((Join-Path $uninstallLegacy 'sentinel.txt'))) 'Explicit V2 data removal changed legacy data.'
+    Assert-Equal 'UNRELATED' ([IO.File]::ReadAllText((Join-Path $uninstallSkinRoot 'UnrelatedSkin/sentinel.ini'))) 'Explicit V2 data removal changed an unrelated skin.'
 
     Write-Host "PASS: $script:assertions packaging and isolated-install assertions"
     Write-Host "Package SHA-256: $(Get-FileSha256 $packagePath)"

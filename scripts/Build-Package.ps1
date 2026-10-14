@@ -16,9 +16,11 @@ $solutionPath = Join-Path $v2Root 'DeadlineWidgetV2.sln'
 $managerProject = Join-Path $v2Root 'src/DeadlineWidget.Manager/DeadlineWidget.Manager.csproj'
 $bridgeBuild = Join-Path $PSScriptRoot 'Build-Bridge.ps1'
 $installScript = Join-Path $PSScriptRoot 'Install-V2.ps1'
+$uninstallScript = Join-Path $PSScriptRoot 'Uninstall-V2.ps1'
 $releaseReadme = Join-Path $PSScriptRoot 'Release-Readme.txt'
 if (-not (Test-Path -LiteralPath $SkinSource -PathType Container)) { throw "V2 skin source not found: $SkinSource" }
 if (-not (Test-Path -LiteralPath $installScript -PathType Leaf)) { throw "Installer not found: $installScript" }
+if (-not (Test-Path -LiteralPath $uninstallScript -PathType Leaf)) { throw "Uninstaller not found: $uninstallScript" }
 if (-not (Test-Path -LiteralPath $releaseReadme -PathType Leaf)) { throw "Release readme not found: $releaseReadme" }
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
@@ -48,12 +50,14 @@ if ($outputPath.TrimEnd('\').Equals($filesystemRoot.TrimEnd('\'), [StringCompari
         $manager = Join-Path $outputPath 'Manager'
         $package = Join-Path $outputPath 'DeadlineWidgetV2.rmskin'
         $installer = Join-Path $outputPath 'Install-V2.ps1'
+        $uninstaller = Join-Path $outputPath 'Uninstall-V2.ps1'
         $readme = Join-Path $outputPath 'README.txt'
-        if ($topLevel.Count -ne 4 -or
+        if ($topLevel.Count -ne 5 -or
             -not (Test-Path -LiteralPath $manager -PathType Container) -or
             -not (Test-Path -LiteralPath (Join-Path $manager 'DeadlineWidget.Manager.exe') -PathType Leaf) -or
             -not (Test-Path -LiteralPath $package -PathType Leaf) -or
             -not (Test-Path -LiteralPath $installer -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $uninstaller -PathType Leaf) -or
             -not (Test-Path -LiteralPath $readme -PathType Leaf)) {
             $unsafeReason = 'existing directory is not an exact V2 release bundle'
         }
@@ -148,6 +152,7 @@ LaunchCommand=DeadlineWidgetV2\DeadlineWidgetV2.ini
         [IO.Compression.CompressionLevel]::Optimal,
         $false)
     Copy-Item -LiteralPath $installScript -Destination (Join-Path $releaseStage 'Install-V2.ps1')
+    Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path $releaseStage 'Uninstall-V2.ps1')
     Copy-Item -LiteralPath $releaseReadme -Destination (Join-Path $releaseStage 'README.txt')
 
     if (Test-Path -LiteralPath $outputPath) {
