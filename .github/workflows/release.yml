@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      - name: Restore locked dependencies and audit
+        shell: pwsh
+        run: dotnet restore .\DeadlineWidgetV2.sln --locked-mode -warnaserror:NU1901,NU1902,NU1903,NU1904
+
+      - name: Test .NET and Lua
+        shell: pwsh
+        run: dotnet test .\DeadlineWidgetV2.sln -c Release --no-restore
+
+      - name: Test native bridge
+        shell: pwsh
+        run: .\tests\Bridge.Tests.ps1 -CompilerPath C:\msys64\mingw64\bin\g++.exe
+
+      - name: Test packaging and isolated install
+        shell: pwsh
+        run: .\tests\Packaging.Tests.ps1 -DotNetPath (Get-Command dotnet).Source -CompilerPath C:\msys64\mingw64\bin\g++.exe
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release tag: $version" }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build release bundle
+        shell: pwsh
+        run: |
+          .\scripts\Build-Package.ps1 `
+            -Version '${{ steps.version.outputs.value }}' `
+            -SkipSolutionTests `
+            -DotNetPath (Get-Command dotnet).Source `
+            -CompilerPath C:\msys64\mingw64\bin\g++.exe
+
+      - name: Archive and checksum
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          Compress-Archive -Path .\artifacts\* -DestinationPath ".\DeadlineWidgetV2-v$version-win-x64.zip"
+          Copy-Item .\artifacts\DeadlineWidgetV2.rmskin ".\DeadlineWidgetV2-v$version.rmskin"
+          Get-FileHash ".\DeadlineWidgetV2-v$version-win-x64.zip", ".\DeadlineWidgetV2-v$version.rmskin" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
+            Set-Content .\SHA256SUMS.txt -Encoding ascii
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create '${{ github.ref_name }}' `
+            ".\DeadlineWidgetV2-v${{ steps.version.outputs.value }}-win-x64.zip" `
+            ".\DeadlineWidgetV2-v${{ steps.version.outputs.value }}.rmskin" `
+            .\SHA256SUMS.txt `
+            --verify-tag --generate-notes --title 'Deadline Widget ${{ github.ref_name }}'
