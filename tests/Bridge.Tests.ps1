@@ -128,14 +128,22 @@ try {
     if ($firstLines.Count -ne 2) { throw 'Expected two diagnostic lines, with embedded newlines escaped.' }
     if ($firstLines[0] -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z command="Other\\r\\nInjected" status=2 error=87$') { throw 'Invalid timestamp/unknown-command diagnostic.' }
     if ($firstLines[1] -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z command="OpenManager" status=3 error=2$') { throw 'Invalid timestamp/missing-manager diagnostic.' }
+    $oversizedBytes = [byte[]]::new(1048576)
+    [IO.File]::WriteAllBytes($diagnosticPath, $oversizedBytes)
+    $oversizedHash = (Get-FileHash -LiteralPath $diagnosticPath -Algorithm SHA256).Hash
     [void](New-Item -ItemType Directory -Path (Join-Path $env:LOCALAPPDATA 'DeadlineWidgetV2/Manager/DeadlineWidget.Manager.exe') -Force)
     & $harness $testDll
     if ($LASTEXITCODE -ne 0) { throw "Directory rejection/append repeat failed: $LASTEXITCODE" }
     $secondLines = @(Get-Content -LiteralPath $diagnosticPath -Encoding utf8)
-    if ($secondLines.Count -ne 4 -or $secondLines[0] -cne $firstLines[0] -or $secondLines[1] -cne $firstLines[1]) { throw 'Diagnostics must append without overwriting.' }
+    if ($secondLines.Count -ne 2) { throw 'Rotated active log must contain only the new diagnostics.' }
+    $backupPath = "$diagnosticPath.1"
+    if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash -cne $oversizedHash) {
+        throw 'Oversized bridge log was not moved byte-for-byte to bridge.log.1.'
+    }
     $outputs = @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Recurse -File)
-    if ($outputs.Count -ne 1 -or $outputs[0].FullName -ne $diagnosticPath) { throw 'Bridge wrote a file outside its sole log destination.' }
-    Write-Host 'PASS: 5 diagnostic checks; absent and directory manager paths rejected'
+    if ($outputs.Count -ne 2 -or $outputs.FullName -notcontains $diagnosticPath -or $outputs.FullName -notcontains $backupPath) { throw 'Bridge wrote outside its bounded log destinations.' }
+    Write-Host 'PASS: 7 diagnostic checks; absent and directory manager paths rejected; oversized log rotated'
     Write-Host "Test-only exports ($($testExports.Count)): $($testExports -join ', ')"
     Write-Host 'Test-only architecture: PE32+ x86-64'
     Write-Host "Exports ($($build.Exports.Count)): $($build.Exports -join ', ')"

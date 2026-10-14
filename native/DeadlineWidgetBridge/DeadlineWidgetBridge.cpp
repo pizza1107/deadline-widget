@@ -127,6 +127,15 @@ void appendDiagnostic(const std::wstring& root, const std::wstring& command, int
     std::string bytes(count, '\0');
     if (WideCharToMultiByte(CP_UTF8, 0, line.data(), static_cast<int>(line.size()), bytes.data(), count, nullptr, nullptr) != count) return;
     const std::wstring filePath = logPath + L"\\bridge.log";
+    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+    if (GetFileAttributesExW(filePath.c_str(), GetFileExInfoStandard, &attributes)) {
+        const ULONGLONG size = (static_cast<ULONGLONG>(attributes.nFileSizeHigh) << 32) |
+            attributes.nFileSizeLow;
+        if (size >= 1048576) {
+            const std::wstring backupPath = filePath + L".1";
+            MoveFileExW(filePath.c_str(), backupPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        }
+    }
     HANDLE file = CreateFileW(filePath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
