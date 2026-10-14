@@ -20,15 +20,20 @@ public sealed class SingleInstanceCoordinator : IDisposable, IAsyncDisposable
 
     private readonly ISingleInstancePlatform _platform;
     private readonly Func<Task> _activate;
+    private readonly IDiagnosticSink _diagnostics;
     private CancellationTokenSource? _listenerCancellation;
     private Task? _listenerTask;
     private bool _ownsMutex;
     private bool _disposed;
 
-    public SingleInstanceCoordinator(ISingleInstancePlatform platform, Func<Task> activate)
+    public SingleInstanceCoordinator(
+        ISingleInstancePlatform platform,
+        Func<Task> activate,
+        IDiagnosticSink? diagnostics = null)
     {
         _platform = platform ?? throw new ArgumentNullException(nameof(platform));
         _activate = activate ?? throw new ArgumentNullException(nameof(activate));
+        _diagnostics = diagnostics ?? NullDiagnosticSink.Instance;
     }
 
     public async Task<bool> StartAsync(CancellationToken cancellationToken = default)
@@ -105,18 +110,31 @@ public sealed class SingleInstanceCoordinator : IDisposable, IAsyncDisposable
                 _ = ObserveActivationAsync(activation);
             }
         }
-        catch
+        catch (Exception exception)
         {
+            TryWriteDiagnostic(exception);
         }
 
         return Task.CompletedTask;
     }
 
-    private static async Task ObserveActivationAsync(Task activation)
+    private async Task ObserveActivationAsync(Task activation)
     {
         try
         {
             await activation.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            TryWriteDiagnostic(exception);
+        }
+    }
+
+    private void TryWriteDiagnostic(Exception exception)
+    {
+        try
+        {
+            _diagnostics.Write("single-instance", exception);
         }
         catch
         {

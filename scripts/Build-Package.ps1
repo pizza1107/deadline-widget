@@ -4,7 +4,9 @@ param(
     [string]$DotNetPath = 'dotnet',
     [string]$CompilerPath,
     [string]$SkinSource = (Join-Path (Split-Path $PSScriptRoot -Parent) 'rainmeter/Skins/DeadlineWidgetV2'),
-    [int]$AnsiCodePage = 0
+    [switch]$SkipSolutionTests,
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
+    [string]$Version = '0.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,20 +15,13 @@ $repositoryRoot = $v2Root
 $solutionPath = Join-Path $v2Root 'DeadlineWidgetV2.sln'
 $managerProject = Join-Path $v2Root 'src/DeadlineWidget.Manager/DeadlineWidget.Manager.csproj'
 $bridgeBuild = Join-Path $PSScriptRoot 'Build-Bridge.ps1'
+$installScript = Join-Path $PSScriptRoot 'Install-V2.ps1'
+$uninstallScript = Join-Path $PSScriptRoot 'Uninstall-V2.ps1'
+$releaseReadme = Join-Path $PSScriptRoot 'Release-Readme.txt'
 if (-not (Test-Path -LiteralPath $SkinSource -PathType Container)) { throw "V2 skin source not found: $SkinSource" }
-if ($AnsiCodePage -eq 0) {
-    if (-not ('DeadlineWidgetV2NativeCodePage' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System.Runtime.InteropServices;
-public static class DeadlineWidgetV2NativeCodePage
-{
-    [DllImport("kernel32.dll")]
-    public static extern uint GetACP();
-}
-'@
-    }
-    $AnsiCodePage = [int][DeadlineWidgetV2NativeCodePage]::GetACP()
-}
+if (-not (Test-Path -LiteralPath $installScript -PathType Leaf)) { throw "Installer not found: $installScript" }
+if (-not (Test-Path -LiteralPath $uninstallScript -PathType Leaf)) { throw "Uninstaller not found: $uninstallScript" }
+if (-not (Test-Path -LiteralPath $releaseReadme -PathType Leaf)) { throw "Release readme not found: $releaseReadme" }
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $skinSourcePath = (Resolve-Path -LiteralPath $SkinSource).Path
@@ -54,10 +49,16 @@ if ($outputPath.TrimEnd('\').Equals($filesystemRoot.TrimEnd('\'), [StringCompari
         $topLevel = @(Get-ChildItem -LiteralPath $outputPath -Force)
         $manager = Join-Path $outputPath 'Manager'
         $package = Join-Path $outputPath 'DeadlineWidgetV2.rmskin'
-        if ($topLevel.Count -ne 2 -or
+        $installer = Join-Path $outputPath 'Install-V2.ps1'
+        $uninstaller = Join-Path $outputPath 'Uninstall-V2.ps1'
+        $readme = Join-Path $outputPath 'README.txt'
+        if ($topLevel.Count -ne 5 -or
             -not (Test-Path -LiteralPath $manager -PathType Container) -or
             -not (Test-Path -LiteralPath (Join-Path $manager 'DeadlineWidget.Manager.exe') -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $package -PathType Leaf)) {
+            -not (Test-Path -LiteralPath $package -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $installer -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $uninstaller -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $readme -PathType Leaf)) {
             $unsafeReason = 'existing directory is not an exact V2 release bundle'
         }
     }
@@ -82,8 +83,10 @@ $workspacePackageCache = Join-Path $repositoryRoot '.nuget/packages'
 try {
     [void](New-Item -ItemType Directory -Path $managerStage, $skinStage, $pluginStage -Force)
 
-    & $DotNetPath test $solutionPath -c Release --nologo
-    if ($LASTEXITCODE -ne 0) { throw "V2 solution tests failed: $LASTEXITCODE" }
+    if (-not $SkipSolutionTests) {
+        & $DotNetPath test $solutionPath -c Release --nologo
+        if ($LASTEXITCODE -ne 0) { throw "V2 solution tests failed: $LASTEXITCODE" }
+    }
 
     try {
         if (-not $env:NUGET_PACKAGES -and (Test-Path -LiteralPath $workspacePackageCache -PathType Container)) {
@@ -111,22 +114,24 @@ try {
 
     Get-ChildItem -LiteralPath $SkinSource -Force | Copy-Item -Destination $skinStage -Recurse -Force
     $unicode = [Text.UnicodeEncoding]::new($false, $true, $true)
-    $ansi = [Text.Encoding]::GetEncoding(
-        $AnsiCodePage,
-        [Text.EncoderExceptionFallback]::new(),
-        [Text.DecoderExceptionFallback]::new())
     foreach ($ini in Get-ChildItem -LiteralPath $skinStage -Recurse -File -Filter '*.ini') {
         [IO.File]::WriteAllText($ini.FullName, [IO.File]::ReadAllText($ini.FullName), $unicode)
     }
-    foreach ($lua in Get-ChildItem -LiteralPath $skinStage -Recurse -File -Filter '*.lua') {
-        [IO.File]::WriteAllBytes($lua.FullName, $ansi.GetBytes([IO.File]::ReadAllText($lua.FullName)))
+    $mainRenderer = Join-Path $skinStage '@Resources/DeadlineWidgetV2.lua'
+    [IO.File]::WriteAllText($mainRenderer, [IO.File]::ReadAllText($mainRenderer), $unicode)
+    foreach ($lua in Get-ChildItem -LiteralPath $skinStage -Recurse -File -Filter '*.lua' |
+        Where-Object { $_.FullName -cne $mainRenderer }) {
+        $luaBytes = [IO.File]::ReadAllBytes($lua.FullName)
+        if (@($luaBytes | Where-Object { $_ -gt 0x7f }).Count -ne 0) {
+            throw "$($lua.Name) must remain ASCII-compatible for byte-oriented UTF-8 decoding."
+        }
     }
 
     $rainstaller = @"
 [Rainstaller]
 Name=Deadline Widget V2
 Author=CourseDeadlineWidget
-Version=2.0.0
+Version=$Version
 Skins=1
 Themes=-1
 Addons=-1
@@ -146,6 +151,9 @@ LaunchCommand=DeadlineWidgetV2\DeadlineWidgetV2.ini
         $zipPath,
         [IO.Compression.CompressionLevel]::Optimal,
         $false)
+    Copy-Item -LiteralPath $installScript -Destination (Join-Path $releaseStage 'Install-V2.ps1')
+    Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path $releaseStage 'Uninstall-V2.ps1')
+    Copy-Item -LiteralPath $releaseReadme -Destination (Join-Path $releaseStage 'README.txt')
 
     if (Test-Path -LiteralPath $outputPath) {
         Move-Item -LiteralPath $outputPath -Destination $previousOutput
@@ -160,7 +168,11 @@ LaunchCommand=DeadlineWidgetV2\DeadlineWidgetV2.ini
     $packageHash = Get-FileHash -LiteralPath (Join-Path $outputPath 'DeadlineWidgetV2.rmskin') -Algorithm SHA256
     Write-Host "Release bundle: $outputPath"
     Write-Host "Package SHA-256: $($packageHash.Hash)"
-    $packageHash
+    [pscustomobject]@{
+        ReleaseDirectory = $outputPath
+        PackagePath = Join-Path $outputPath 'DeadlineWidgetV2.rmskin'
+        PackageSha256 = $packageHash.Hash
+    }
 }
 catch {
     if ($outputBackedUp -and -not (Test-Path -LiteralPath $outputPath) -and (Test-Path -LiteralPath $previousOutput)) {

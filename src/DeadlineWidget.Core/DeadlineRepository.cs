@@ -112,7 +112,7 @@ public sealed class DeadlineRepository
             cancellationToken.ThrowIfCancellationRequested();
             if (File.Exists(primaryPath))
             {
-                _fileReplacer.Replace(tempPath, primaryPath);
+                await ReplaceWithRetryAsync(tempPath, primaryPath, cancellationToken);
             }
             else
             {
@@ -124,6 +124,27 @@ public sealed class DeadlineRepository
             if (File.Exists(tempPath))
             {
                 File.Delete(tempPath);
+            }
+        }
+    }
+
+    private async Task ReplaceWithRetryAsync(
+        string sourcePath,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        const int unableToRemoveReplacedFile = 1175;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                _fileReplacer.Replace(sourcePath, destinationPath);
+                return;
+            }
+            catch (IOException exception) when (
+                (exception.HResult & 0xffff) == unableToRemoveReplacedFile && attempt < 3)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt), cancellationToken);
             }
         }
     }

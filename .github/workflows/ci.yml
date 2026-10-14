@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      - name: Restore locked dependencies and audit
+        shell: pwsh
+        run: dotnet restore .\DeadlineWidgetV2.sln --locked-mode -warnaserror:NU1901,NU1902,NU1903,NU1904
+
+      - name: Test .NET and Lua
+        shell: pwsh
+        run: dotnet test .\DeadlineWidgetV2.sln -c Release --no-restore
+
+      - name: Test native bridge
+        shell: pwsh
+        run: .\tests\Bridge.Tests.ps1 -CompilerPath (Get-Command g++.exe).Source
+
+      - name: Test packaging and isolated install
+        shell: pwsh
+        run: .\tests\Packaging.Tests.ps1 -DotNetPath (Get-Command dotnet).Source -CompilerPath (Get-Command g++.exe).Source

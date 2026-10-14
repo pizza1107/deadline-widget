@@ -472,18 +472,33 @@ public sealed class SkinContractTests
     }
 
     [TestMethod]
-    public void Renderer_PreservesRawChineseBytesFromAnActiveCodePageSnapshot()
+    public void Renderer_ReadsBomMarkedUtf8SnapshotWithoutLosingUnicode()
     {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        var activeCodePageBytes = Encoding.GetEncoding(936).GetBytes("中文课程");
-        var luaByteString = Encoding.Latin1.GetString(activeCodePageBytes);
-        var json = "{\"version\":1,\"generatedAt\":\"2026-09-16T12:00:00+08:00\",\"items\":[" +
-            "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"title\":\"" + luaByteString +
-            "\",\"dueAt\":\"2026-09-17T12:00:00+08:00\",\"isCompleted\":false}]}";
+        const string title = "课程 😀 𠮷 café";
+        var utf8Bytes = Encoding.UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes(Snapshot(Item(title, TestNow.AddDays(1)))))
+            .ToArray();
+        var luaByteString = Encoding.Latin1.GetString(utf8Bytes);
+
+        var row = Rows(Render(luaByteString))[0];
+
+        CollectionAssert.AreEqual(
+            Encoding.UTF8.GetBytes(title),
+            Encoding.Latin1.GetBytes(Text(row, "title")));
+    }
+
+    [TestMethod]
+    public void Renderer_DecodesUnicodeEscapesFromUtf8Snapshot()
+    {
+        const string json = "{\"version\":1,\"generatedAt\":\"2026-09-16T12:00:00+08:00\",\"items\":[" +
+            "{\"id\":\"00000000-0000-0000-0000-000000000002\",\"title\":\"\\u8BFE\\u7A0B \\uD83D\\uDE00\"," +
+            "\"dueAt\":\"2026-09-17T12:00:00+08:00\",\"isCompleted\":false}]}";
 
         var row = Rows(Render(json))[0];
 
-        Assert.AreEqual(luaByteString, Text(row, "title"));
+        CollectionAssert.AreEqual(
+            Encoding.UTF8.GetBytes("课程 😀"),
+            Encoding.Latin1.GetBytes(Text(row, "title")));
     }
 
     [TestMethod]

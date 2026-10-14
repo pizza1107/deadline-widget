@@ -1,5 +1,4 @@
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -30,6 +29,10 @@ public sealed class SnapshotPublisher : ISnapshotPublisher
 {
     private const string SnapshotFileName = "display.json";
     private const string TempFileName = "display.tmp.json";
+
+    private static readonly UTF8Encoding SnapshotEncoding = new(
+        encoderShouldEmitUTF8Identifier: true,
+        throwOnInvalidBytes: true);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -86,12 +89,11 @@ public sealed class SnapshotPublisher : ISnapshotPublisher
             .ToArray();
         var document = new SnapshotDocument(1, generatedAt, items);
 
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        var ansi = Encoding.GetEncoding(
-            checked((int)GetACP()),
-            EncoderFallback.ExceptionFallback,
-            DecoderFallback.ExceptionFallback);
-        var bytes = ansi.GetBytes(JsonSerializer.Serialize(document, JsonOptions));
+        var jsonBytes = SnapshotEncoding.GetBytes(JsonSerializer.Serialize(document, JsonOptions));
+        var preamble = SnapshotEncoding.GetPreamble();
+        var bytes = new byte[preamble.Length + jsonBytes.Length];
+        preamble.CopyTo(bytes, 0);
+        jsonBytes.CopyTo(bytes, preamble.Length);
 
         _fileSystem.CreateDirectory(_directoryPath);
         try
@@ -125,9 +127,6 @@ public sealed class SnapshotPublisher : ISnapshotPublisher
         string Countdown,
         DeadlineUrgency Urgency,
         bool IsOverdue);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetACP();
 }
 
 internal sealed class SnapshotFileSystem : ISnapshotFileSystem

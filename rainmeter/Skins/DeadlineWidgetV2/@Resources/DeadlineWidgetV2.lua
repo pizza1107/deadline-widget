@@ -209,9 +209,16 @@ local function applyBridgeError(result, bridgeStatus, labels)
     return result
 end
 
+local function stripUtf8Bom(text)
+    if string.sub(text, 1, 3) == "\239\187\191" then
+        return string.sub(text, 4)
+    end
+    return text
+end
+
 local function render(snapshotText, nowEpoch, requestedPage, labels, bridgeStatus, testLocalOffsetSeconds)
     local ok, document = pcall(function()
-        return ensureDecoder().decode(snapshotText)
+        return ensureDecoder().decode(stripUtf8Bom(snapshotText))
     end)
     if not ok then
         return applyBridgeError(errorResult("error", labels.error), bridgeStatus, labels)

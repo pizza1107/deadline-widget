@@ -8,13 +8,17 @@ $ErrorActionPreference = 'Stop'
 $v2Root = Split-Path $PSScriptRoot -Parent
 $buildScript = Join-Path $v2Root 'scripts/Build-Package.ps1'
 $installScript = Join-Path $v2Root 'scripts/Install-V2.ps1'
-$missing = @($buildScript, $installScript | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+$uninstallScript = Join-Path $v2Root 'scripts/Uninstall-V2.ps1'
+$missing = @($buildScript, $installScript, $uninstallScript | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
 if ($missing.Count -gt 0) {
     Write-Host "FAIL: Missing production packaging scripts: $($missing -join ', ')"
     exit 1
 }
 
 $buildScriptText = [IO.File]::ReadAllText($buildScript)
+$packagingTestText = [IO.File]::ReadAllText($PSCommandPath)
+$ciWorkflowText = [IO.File]::ReadAllText((Join-Path $v2Root '.github/workflows/ci.yml'))
+$releaseWorkflowText = [IO.File]::ReadAllText((Join-Path $v2Root '.github/workflows/release.yml'))
 if ($buildScriptText -notmatch [regex]::Escape('$repositoryRoot = $v2Root') -or
     $buildScriptText -notmatch [regex]::Escape("`$workspacePackageCache = Join-Path `$repositoryRoot '.nuget/packages'")) {
     throw 'Build-Package.ps1 does not resolve repository paths from the relocated V2 repository root.'
@@ -77,6 +81,13 @@ function Assert-InstallFails {
     Assert-True ($failure -like $ExpectedMessage) "Install failed for the wrong reason. Expected: $ExpectedMessage; actual: $failure"
 }
 
+Assert-True ($buildScriptText -match '\[switch\]\$SkipSolutionTests') 'Build-Package must expose -SkipSolutionTests.'
+Assert-True ($packagingTestText -match 'SkipSolutionTests\s*=\s*\$true') 'Packaging tests must avoid nested solution tests.'
+foreach ($workflow in @($ciWorkflowText, $releaseWorkflowText)) {
+    Assert-True ($workflow -notmatch [regex]::Escape('C:\msys64\mingw64\bin\g++.exe')) 'GitHub workflows must not hard-code the MSYS2 compiler installation path.'
+    Assert-True ($workflow -match [regex]::Escape('(Get-Command g++.exe).Source')) 'GitHub workflows must resolve the compiler from PATH at runtime.'
+}
+
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('DeadlineWidgetV2.Packaging.Tests-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testRoot)
 $savedLocalAppData = $env:LOCALAPPDATA
@@ -100,16 +111,20 @@ try {
         OutputDirectory = $releaseRoot
         DotNetPath = $DotNetPath
         SkinSource = $skinSource
-        AnsiCodePage = 936
+        SkipSolutionTests = $true
+        Version = '1.2.3'
     }
     if ($CompilerPath) { $buildArguments.CompilerPath = $CompilerPath }
     $buildResult = & $buildScript @buildArguments
 
     $releaseFiles = @(Get-ChildItem -LiteralPath $releaseRoot -Force | Sort-Object Name)
-    Assert-Equal 2 $releaseFiles.Count 'Release bundle must contain exactly the manager directory and rmskin package.'
+    Assert-Equal 5 $releaseFiles.Count 'Release bundle must contain exactly the manager, rmskin, installer, uninstaller, and readme.'
     Assert-Equal 'DeadlineWidgetV2.rmskin' $releaseFiles[0].Name 'Release package name is wrong.'
-    Assert-Equal 'Manager' $releaseFiles[1].Name 'Published manager directory is missing.'
-    Assert-True $releaseFiles[1].PSIsContainer 'Manager bundle entry must be a directory.'
+    Assert-Equal 'Install-V2.ps1' $releaseFiles[1].Name 'Release installer is missing.'
+    Assert-Equal 'Manager' $releaseFiles[2].Name 'Published manager directory is missing.'
+    Assert-True $releaseFiles[2].PSIsContainer 'Manager bundle entry must be a directory.'
+    Assert-Equal 'README.txt' $releaseFiles[3].Name 'Release readme is missing.'
+    Assert-Equal 'Uninstall-V2.ps1' $releaseFiles[4].Name 'Release uninstaller is missing.'
 
     $managerRoot = Join-Path $releaseRoot 'Manager'
     foreach ($requiredRuntimeFile in @('DeadlineWidget.Manager.exe', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
@@ -119,7 +134,9 @@ try {
 
     $packagePath = Join-Path $releaseRoot 'DeadlineWidgetV2.rmskin'
     Assert-True (Test-Path -LiteralPath $packagePath -PathType Leaf) 'The rmskin package was not created.'
-    Assert-Equal (Get-FileSha256 $packagePath) $buildResult.Hash 'Build result must report the package SHA-256.'
+    Assert-Equal ([IO.Path]::GetFullPath($releaseRoot)) $buildResult.ReleaseDirectory 'Build result must report the release directory.'
+    Assert-Equal ([IO.Path]::GetFullPath($packagePath)) $buildResult.PackagePath 'Build result must report the package path.'
+    Assert-Equal (Get-FileSha256 $packagePath) $buildResult.PackageSha256 'Build result must report the package SHA-256.'
     $extractRoot = Join-Path $testRoot 'extracted-rmskin'
     [IO.Compression.ZipFile]::ExtractToDirectory($packagePath, $extractRoot)
     $expectedPackageFiles = @(
@@ -136,7 +153,7 @@ try {
     $expectedRainstaller = [ordered]@{
         Name = 'Deadline Widget V2'
         Author = 'CourseDeadlineWidget'
-        Version = '2.0.0'
+        Version = '1.2.3'
         Skins = '1'
         Themes = '-1'
         Addons = '-1'
@@ -159,11 +176,15 @@ try {
     Assert-BytesEqual ([byte[]](0xff, 0xfe)) ([byte[]]$iniBytes[0..1]) 'The staged Rainmeter INI must be UTF-16 LE with BOM.'
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $skinSource 'DeadlineWidgetV2.ini'))) ([IO.File]::ReadAllText($stagedIni, [Text.UnicodeEncoding]::new($false, $true, $true))) 'UTF-16 staging changed INI text.'
 
-    $ansi = [Text.Encoding]::GetEncoding(936, [Text.EncoderExceptionFallback]::new(), [Text.DecoderExceptionFallback]::new())
     $stagedLua = Join-Path $extractRoot 'Skins/DeadlineWidgetV2/@Resources/DeadlineWidgetV2.lua'
-    $luaBytes = [IO.File]::ReadAllBytes($stagedLua)
-    Assert-True (-not ($luaBytes.Length -ge 3 -and $luaBytes[0] -eq 0xef -and $luaBytes[1] -eq 0xbb -and $luaBytes[2] -eq 0xbf)) 'The staged Lua must not contain a UTF-8 BOM.'
-    Assert-Equal ([IO.File]::ReadAllText($luaSourcePath)) ($ansi.GetString($luaBytes)) 'ACP staging changed Lua text.'
+    $mainLuaBytes = [IO.File]::ReadAllBytes($stagedLua)
+    Assert-BytesEqual ([byte[]](0xff, 0xfe)) ([byte[]]$mainLuaBytes[0..1]) 'Main Rainmeter Lua must be UTF-16 LE with BOM.'
+    Assert-Equal ([IO.File]::ReadAllText($luaSourcePath)) ([IO.File]::ReadAllText($stagedLua, [Text.UnicodeEncoding]::new($false, $true, $true))) 'UTF-16 staging changed the main renderer text.'
+
+    $jsonLuaPath = Join-Path $extractRoot 'Skins/DeadlineWidgetV2/@Resources/json.lua'
+    $jsonLuaBytes = [IO.File]::ReadAllBytes($jsonLuaPath)
+    Assert-True (-not ($jsonLuaBytes[0] -eq 0xff -and $jsonLuaBytes[1] -eq 0xfe)) 'JSON byte decoder must remain single-byte source.'
+    Assert-True (($jsonLuaBytes | Where-Object { $_ -gt 0x7f }).Count -eq 0) 'JSON helper must remain ASCII-compatible.'
 
     $pluginPath = Join-Path $extractRoot 'Plugins/64bit/DeadlineWidgetBridge.dll'
     $bridgeBuild = Join-Path $v2Root 'scripts/Build-Bridge.ps1'
@@ -191,14 +212,14 @@ try {
     foreach ($unsafeOutput in @([IO.Path]::GetPathRoot($repositoryRoot), $repositoryRoot, $skinSource, $nonBundleOutput)) {
         $unsafeFailure = $null
         try {
-            & $buildScript -OutputDirectory $unsafeOutput -DotNetPath (Join-Path $testRoot 'must-not-run.exe') -SkinSource $skinSource -AnsiCodePage 936 | Out-Null
+            & $buildScript -OutputDirectory $unsafeOutput -DotNetPath (Join-Path $testRoot 'must-not-run.exe') -SkinSource $skinSource | Out-Null
         } catch { $unsafeFailure = $_.Exception.Message }
         Assert-True ($unsafeFailure -like 'Refusing unsafe V2 bundle output:*') "Unsafe output was not rejected before build: $unsafeOutput; failure: $unsafeFailure"
     }
     Assert-Equal 'DO-NOT-DELETE' ([IO.File]::ReadAllText((Join-Path $nonBundleOutput 'sentinel.txt')) ) 'Unsafe output validation modified a non-bundle directory.'
 
-    $localRoot = Join-Path $testRoot 'Local AppData 隔离'
-    $appDataRoot = Join-Path $testRoot 'Roaming AppData 隔离'
+    $localRoot = Join-Path $testRoot 'Local AppData 隔离 𠮷'
+    $appDataRoot = Join-Path $testRoot 'Roaming AppData 隔离 𠮷'
     $legacyRoot = Join-Path $localRoot 'CourseDeadlineWidget'
     $v2DataRoot = Join-Path $localRoot 'DeadlineWidgetV2'
     $legacySkinRoot = Join-Path $appDataRoot 'Rainmeter/Skins/DeadlineWidget'
@@ -302,9 +323,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     Assert-Equal ([IO.Path]::GetFullPath($localRoot)) ([IO.File]::ReadAllText((Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'), [Text.UTF8Encoding]::new($false)).Trim()) 'Installer must persist the absolute Local AppData root beside the plugin.'
     $startupShortcut = Join-Path $startupRoot 'DeadlineWidgetV2 Manager.lnk'
     Assert-True (Test-Path -LiteralPath $startupShortcut -PathType Leaf) 'Installer must create the current-user background manager startup shortcut.'
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($startupShortcut)
-    Assert-Equal ([IO.Path]::GetFullPath((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) $shortcut.TargetPath 'Startup shortcut targets the wrong manager executable.'
-    Assert-Equal '--background' $shortcut.Arguments 'Startup shortcut must launch the manager hidden.'
+    Assert-Equal ([IO.Path]::GetFullPath((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) ([DeadlineWidget.Installation.ShortcutWriter]::ReadTarget($startupShortcut)) 'Startup shortcut targets the wrong manager executable.'
+    Assert-Equal '--background' ([DeadlineWidget.Installation.ShortcutWriter]::ReadArguments($startupShortcut)) 'Startup shortcut must launch the manager hidden.'
     Assert-Equal ([IO.Path]::GetFullPath((Join-Path $installRelease 'DeadlineWidgetV2.rmskin'))) ([IO.File]::ReadAllText($fakeLog).Trim()) 'SkinInstaller did not receive the exact V2 package path.'
 
     $migrationSets = @(Get-ChildItem -LiteralPath (Join-Path $v2DataRoot 'migration-backup') -Directory)
@@ -358,6 +378,54 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     Assert-ManagerRolledBack 'CREATE-PROTECTED'
     Assert-True (Test-Path -LiteralPath $v2Backup -PathType Leaf) 'Failure injection did not create the initially absent protected path.'
     Remove-Item -LiteralPath $v2Backup -Force
+
+    $uninstallLocalRoot = Join-Path $testRoot 'Uninstall Local'
+    $uninstallDataRoot = Join-Path $uninstallLocalRoot 'DeadlineWidgetV2'
+    $uninstallManager = Join-Path $uninstallDataRoot 'Manager'
+    $uninstallSkinRoot = Join-Path $testRoot 'Uninstall Skins'
+    $uninstallSkin = Join-Path $uninstallSkinRoot 'DeadlineWidgetV2'
+    $uninstallPluginRoot = Join-Path $testRoot 'Uninstall Plugins'
+    $uninstallStartupRoot = Join-Path $testRoot 'Uninstall Startup'
+    $uninstallLegacy = Join-Path $uninstallLocalRoot 'CourseDeadlineWidget'
+    [void](New-Item -ItemType Directory -Path $uninstallManager, $uninstallSkin, $uninstallPluginRoot, $uninstallStartupRoot, (Join-Path $uninstallDataRoot 'migration-backup/set'), (Join-Path $uninstallDataRoot 'logs'), $uninstallLegacy, (Join-Path $uninstallSkinRoot 'UnrelatedSkin') -Force)
+    [IO.File]::WriteAllText((Join-Path $uninstallManager 'DeadlineWidget.Manager.exe'), 'PROGRAM')
+    [IO.File]::WriteAllText((Join-Path $uninstallSkin 'DeadlineWidgetV2.ini'), 'SKIN')
+    [IO.File]::WriteAllText((Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.dll'), 'PLUGIN')
+    [IO.File]::WriteAllText((Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.root'), 'ROOT')
+    [IO.File]::WriteAllText((Join-Path $uninstallStartupRoot 'DeadlineWidgetV2 Manager.lnk'), 'SHORTCUT')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'deadlines.json'), 'DEADLINES')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'deadlines.backup.json'), 'BACKUP')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'migration-backup/set/manifest.txt'), 'MIGRATION')
+    [IO.File]::WriteAllText((Join-Path $uninstallDataRoot 'logs/manager.log'), 'LOG')
+    [IO.File]::WriteAllText((Join-Path $uninstallLegacy 'sentinel.txt'), 'LEGACY')
+    [IO.File]::WriteAllText((Join-Path $uninstallSkinRoot 'UnrelatedSkin/sentinel.ini'), 'UNRELATED')
+    $uninstallArguments = @{
+        LocalAppDataRoot = $uninstallLocalRoot
+        SkinRoot = $uninstallSkinRoot
+        PluginRoot = $uninstallPluginRoot
+        StartupRoot = $uninstallStartupRoot
+    }
+
+    & $uninstallScript @uninstallArguments
+
+    Assert-True (-not (Test-Path -LiteralPath $uninstallManager)) 'Default uninstall left the Manager directory.'
+    Assert-True (-not (Test-Path -LiteralPath $uninstallSkin)) 'Default uninstall left the V2 skin.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.dll'))) 'Default uninstall left the bridge DLL.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $uninstallPluginRoot 'DeadlineWidgetBridge.root'))) 'Default uninstall left the bridge root file.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $uninstallStartupRoot 'DeadlineWidgetV2 Manager.lnk'))) 'Default uninstall left the startup shortcut.'
+    foreach ($preserved in @('deadlines.json', 'deadlines.backup.json', 'migration-backup/set/manifest.txt', 'logs/manager.log')) {
+        Assert-True (Test-Path -LiteralPath (Join-Path $uninstallDataRoot $preserved) -PathType Leaf) "Default uninstall removed protected data: $preserved"
+    }
+    Assert-Equal 'LEGACY' ([IO.File]::ReadAllText((Join-Path $uninstallLegacy 'sentinel.txt'))) 'Uninstall changed legacy data.'
+    Assert-Equal 'UNRELATED' ([IO.File]::ReadAllText((Join-Path $uninstallSkinRoot 'UnrelatedSkin/sentinel.ini'))) 'Uninstall changed an unrelated skin.'
+
+    [void](New-Item -ItemType Directory -Path $uninstallManager, $uninstallSkin -Force)
+    [IO.File]::WriteAllText((Join-Path $uninstallManager 'DeadlineWidget.Manager.exe'), 'PROGRAM-AGAIN')
+    & $uninstallScript @uninstallArguments -RemoveUserData
+
+    Assert-True (-not (Test-Path -LiteralPath $uninstallDataRoot)) 'Explicit data removal left the validated V2 data root.'
+    Assert-Equal 'LEGACY' ([IO.File]::ReadAllText((Join-Path $uninstallLegacy 'sentinel.txt'))) 'Explicit V2 data removal changed legacy data.'
+    Assert-Equal 'UNRELATED' ([IO.File]::ReadAllText((Join-Path $uninstallSkinRoot 'UnrelatedSkin/sentinel.ini'))) 'Explicit V2 data removal changed an unrelated skin.'
 
     Write-Host "PASS: $script:assertions packaging and isolated-install assertions"
     Write-Host "Package SHA-256: $(Get-FileSha256 $packagePath)"
