@@ -3,8 +3,7 @@ param(
     [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts'),
     [string]$DotNetPath = 'dotnet',
     [string]$CompilerPath,
-    [string]$SkinSource = (Join-Path (Split-Path $PSScriptRoot -Parent) 'rainmeter/Skins/DeadlineWidgetV2'),
-    [int]$AnsiCodePage = 0
+    [string]$SkinSource = (Join-Path (Split-Path $PSScriptRoot -Parent) 'rainmeter/Skins/DeadlineWidgetV2')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,19 +13,6 @@ $solutionPath = Join-Path $v2Root 'DeadlineWidgetV2.sln'
 $managerProject = Join-Path $v2Root 'src/DeadlineWidget.Manager/DeadlineWidget.Manager.csproj'
 $bridgeBuild = Join-Path $PSScriptRoot 'Build-Bridge.ps1'
 if (-not (Test-Path -LiteralPath $SkinSource -PathType Container)) { throw "V2 skin source not found: $SkinSource" }
-if ($AnsiCodePage -eq 0) {
-    if (-not ('DeadlineWidgetV2NativeCodePage' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System.Runtime.InteropServices;
-public static class DeadlineWidgetV2NativeCodePage
-{
-    [DllImport("kernel32.dll")]
-    public static extern uint GetACP();
-}
-'@
-    }
-    $AnsiCodePage = [int][DeadlineWidgetV2NativeCodePage]::GetACP()
-}
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $skinSourcePath = (Resolve-Path -LiteralPath $SkinSource).Path
@@ -111,15 +97,17 @@ try {
 
     Get-ChildItem -LiteralPath $SkinSource -Force | Copy-Item -Destination $skinStage -Recurse -Force
     $unicode = [Text.UnicodeEncoding]::new($false, $true, $true)
-    $ansi = [Text.Encoding]::GetEncoding(
-        $AnsiCodePage,
-        [Text.EncoderExceptionFallback]::new(),
-        [Text.DecoderExceptionFallback]::new())
     foreach ($ini in Get-ChildItem -LiteralPath $skinStage -Recurse -File -Filter '*.ini') {
         [IO.File]::WriteAllText($ini.FullName, [IO.File]::ReadAllText($ini.FullName), $unicode)
     }
-    foreach ($lua in Get-ChildItem -LiteralPath $skinStage -Recurse -File -Filter '*.lua') {
-        [IO.File]::WriteAllBytes($lua.FullName, $ansi.GetBytes([IO.File]::ReadAllText($lua.FullName)))
+    $mainRenderer = Join-Path $skinStage '@Resources/DeadlineWidgetV2.lua'
+    [IO.File]::WriteAllText($mainRenderer, [IO.File]::ReadAllText($mainRenderer), $unicode)
+    foreach ($lua in Get-ChildItem -LiteralPath $skinStage -Recurse -File -Filter '*.lua' |
+        Where-Object { $_.FullName -cne $mainRenderer }) {
+        $luaBytes = [IO.File]::ReadAllBytes($lua.FullName)
+        if (@($luaBytes | Where-Object { $_ -gt 0x7f }).Count -ne 0) {
+            throw "$($lua.Name) must remain ASCII-compatible for byte-oriented UTF-8 decoding."
+        }
     }
 
     $rainstaller = @"

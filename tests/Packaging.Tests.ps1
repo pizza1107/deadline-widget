@@ -100,7 +100,6 @@ try {
         OutputDirectory = $releaseRoot
         DotNetPath = $DotNetPath
         SkinSource = $skinSource
-        AnsiCodePage = 936
     }
     if ($CompilerPath) { $buildArguments.CompilerPath = $CompilerPath }
     $buildResult = & $buildScript @buildArguments
@@ -159,11 +158,15 @@ try {
     Assert-BytesEqual ([byte[]](0xff, 0xfe)) ([byte[]]$iniBytes[0..1]) 'The staged Rainmeter INI must be UTF-16 LE with BOM.'
     Assert-Equal ([IO.File]::ReadAllText((Join-Path $skinSource 'DeadlineWidgetV2.ini'))) ([IO.File]::ReadAllText($stagedIni, [Text.UnicodeEncoding]::new($false, $true, $true))) 'UTF-16 staging changed INI text.'
 
-    $ansi = [Text.Encoding]::GetEncoding(936, [Text.EncoderExceptionFallback]::new(), [Text.DecoderExceptionFallback]::new())
     $stagedLua = Join-Path $extractRoot 'Skins/DeadlineWidgetV2/@Resources/DeadlineWidgetV2.lua'
-    $luaBytes = [IO.File]::ReadAllBytes($stagedLua)
-    Assert-True (-not ($luaBytes.Length -ge 3 -and $luaBytes[0] -eq 0xef -and $luaBytes[1] -eq 0xbb -and $luaBytes[2] -eq 0xbf)) 'The staged Lua must not contain a UTF-8 BOM.'
-    Assert-Equal ([IO.File]::ReadAllText($luaSourcePath)) ($ansi.GetString($luaBytes)) 'ACP staging changed Lua text.'
+    $mainLuaBytes = [IO.File]::ReadAllBytes($stagedLua)
+    Assert-BytesEqual ([byte[]](0xff, 0xfe)) ([byte[]]$mainLuaBytes[0..1]) 'Main Rainmeter Lua must be UTF-16 LE with BOM.'
+    Assert-Equal ([IO.File]::ReadAllText($luaSourcePath)) ([IO.File]::ReadAllText($stagedLua, [Text.UnicodeEncoding]::new($false, $true, $true))) 'UTF-16 staging changed the main renderer text.'
+
+    $jsonLuaPath = Join-Path $extractRoot 'Skins/DeadlineWidgetV2/@Resources/json.lua'
+    $jsonLuaBytes = [IO.File]::ReadAllBytes($jsonLuaPath)
+    Assert-True (-not ($jsonLuaBytes[0] -eq 0xff -and $jsonLuaBytes[1] -eq 0xfe)) 'JSON byte decoder must remain single-byte source.'
+    Assert-True (($jsonLuaBytes | Where-Object { $_ -gt 0x7f }).Count -eq 0) 'JSON helper must remain ASCII-compatible.'
 
     $pluginPath = Join-Path $extractRoot 'Plugins/64bit/DeadlineWidgetBridge.dll'
     $bridgeBuild = Join-Path $v2Root 'scripts/Build-Bridge.ps1'
@@ -191,7 +194,7 @@ try {
     foreach ($unsafeOutput in @([IO.Path]::GetPathRoot($repositoryRoot), $repositoryRoot, $skinSource, $nonBundleOutput)) {
         $unsafeFailure = $null
         try {
-            & $buildScript -OutputDirectory $unsafeOutput -DotNetPath (Join-Path $testRoot 'must-not-run.exe') -SkinSource $skinSource -AnsiCodePage 936 | Out-Null
+            & $buildScript -OutputDirectory $unsafeOutput -DotNetPath (Join-Path $testRoot 'must-not-run.exe') -SkinSource $skinSource | Out-Null
         } catch { $unsafeFailure = $_.Exception.Message }
         Assert-True ($unsafeFailure -like 'Refusing unsafe V2 bundle output:*') "Unsafe output was not rejected before build: $unsafeOutput; failure: $unsafeFailure"
     }
