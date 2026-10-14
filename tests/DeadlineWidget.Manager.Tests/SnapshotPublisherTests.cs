@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using DeadlineWidget.Core;
@@ -29,23 +28,21 @@ public sealed class SnapshotPublisherTests
     }
 
     [TestMethod]
-    public async Task Publish_WritesVersionedChineseSnapshotThroughTempAndAtomicMove()
+    public async Task Publish_WritesBomMarkedUtf8SnapshotWithoutLosingUnicode()
     {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var fileSystem = new FakeSnapshotFileSystem();
         var publisher = new SnapshotPublisher("X:\\DeadlineWidgetV2", fileSystem, new DeadlineClock());
-        var deadline = new Deadline(Guid.NewGuid(), "中文课程", Now.AddDays(5), false, Now, Now, null);
+        var title = "课程 😀 𠮷 café";
+        var deadline = new Deadline(Guid.NewGuid(), title, Now.AddDays(5), false, Now, Now, null);
 
         await publisher.PublishAsync([deadline], Now);
 
         CollectionAssert.AreEqual(new[] { "create-directory", "write-temp", "move-temp" }, fileSystem.Events);
-        var encoding = Encoding.GetEncoding(checked((int)GetACP()));
-        var json = encoding.GetString(fileSystem.DestinationBytes!);
-        StringAssert.Contains(json, "中文课程");
-        Assert.IsFalse(json.Contains("\\u4E2D", StringComparison.OrdinalIgnoreCase));
+        CollectionAssert.AreEqual(new byte[] { 0xEF, 0xBB, 0xBF }, fileSystem.DestinationBytes![..3]);
+        var json = new UTF8Encoding(false, true).GetString(fileSystem.DestinationBytes[3..]);
         using var document = JsonDocument.Parse(json);
         Assert.AreEqual(1, document.RootElement.GetProperty("version").GetInt32());
-        Assert.AreEqual("中文课程", document.RootElement.GetProperty("items")[0].GetProperty("title").GetString());
+        Assert.AreEqual(title, document.RootElement.GetProperty("items")[0].GetProperty("title").GetString());
         Assert.AreEqual("Warning", document.RootElement.GetProperty("items")[0].GetProperty("urgency").GetString());
     }
 
@@ -115,7 +112,4 @@ public sealed class SnapshotPublisherTests
             TempBytes = null;
         }
     }
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetACP();
 }
