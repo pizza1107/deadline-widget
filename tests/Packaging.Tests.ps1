@@ -105,15 +105,18 @@ try {
         DotNetPath = $DotNetPath
         SkinSource = $skinSource
         SkipSolutionTests = $true
+        Version = '1.2.3'
     }
     if ($CompilerPath) { $buildArguments.CompilerPath = $CompilerPath }
     $buildResult = & $buildScript @buildArguments
 
     $releaseFiles = @(Get-ChildItem -LiteralPath $releaseRoot -Force | Sort-Object Name)
-    Assert-Equal 2 $releaseFiles.Count 'Release bundle must contain exactly the manager directory and rmskin package.'
+    Assert-Equal 4 $releaseFiles.Count 'Release bundle must contain exactly the manager, rmskin, installer, and readme.'
     Assert-Equal 'DeadlineWidgetV2.rmskin' $releaseFiles[0].Name 'Release package name is wrong.'
-    Assert-Equal 'Manager' $releaseFiles[1].Name 'Published manager directory is missing.'
-    Assert-True $releaseFiles[1].PSIsContainer 'Manager bundle entry must be a directory.'
+    Assert-Equal 'Install-V2.ps1' $releaseFiles[1].Name 'Release installer is missing.'
+    Assert-Equal 'Manager' $releaseFiles[2].Name 'Published manager directory is missing.'
+    Assert-True $releaseFiles[2].PSIsContainer 'Manager bundle entry must be a directory.'
+    Assert-Equal 'README.txt' $releaseFiles[3].Name 'Release readme is missing.'
 
     $managerRoot = Join-Path $releaseRoot 'Manager'
     foreach ($requiredRuntimeFile in @('DeadlineWidget.Manager.exe', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
@@ -123,7 +126,9 @@ try {
 
     $packagePath = Join-Path $releaseRoot 'DeadlineWidgetV2.rmskin'
     Assert-True (Test-Path -LiteralPath $packagePath -PathType Leaf) 'The rmskin package was not created.'
-    Assert-Equal (Get-FileSha256 $packagePath) $buildResult.Hash 'Build result must report the package SHA-256.'
+    Assert-Equal ([IO.Path]::GetFullPath($releaseRoot)) $buildResult.ReleaseDirectory 'Build result must report the release directory.'
+    Assert-Equal ([IO.Path]::GetFullPath($packagePath)) $buildResult.PackagePath 'Build result must report the package path.'
+    Assert-Equal (Get-FileSha256 $packagePath) $buildResult.PackageSha256 'Build result must report the package SHA-256.'
     $extractRoot = Join-Path $testRoot 'extracted-rmskin'
     [IO.Compression.ZipFile]::ExtractToDirectory($packagePath, $extractRoot)
     $expectedPackageFiles = @(
@@ -140,7 +145,7 @@ try {
     $expectedRainstaller = [ordered]@{
         Name = 'Deadline Widget V2'
         Author = 'CourseDeadlineWidget'
-        Version = '2.0.0'
+        Version = '1.2.3'
         Skins = '1'
         Themes = '-1'
         Addons = '-1'

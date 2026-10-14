@@ -4,7 +4,9 @@ param(
     [string]$DotNetPath = 'dotnet',
     [string]$CompilerPath,
     [string]$SkinSource = (Join-Path (Split-Path $PSScriptRoot -Parent) 'rainmeter/Skins/DeadlineWidgetV2'),
-    [switch]$SkipSolutionTests
+    [switch]$SkipSolutionTests,
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
+    [string]$Version = '0.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,7 +15,11 @@ $repositoryRoot = $v2Root
 $solutionPath = Join-Path $v2Root 'DeadlineWidgetV2.sln'
 $managerProject = Join-Path $v2Root 'src/DeadlineWidget.Manager/DeadlineWidget.Manager.csproj'
 $bridgeBuild = Join-Path $PSScriptRoot 'Build-Bridge.ps1'
+$installScript = Join-Path $PSScriptRoot 'Install-V2.ps1'
+$releaseReadme = Join-Path $PSScriptRoot 'Release-Readme.txt'
 if (-not (Test-Path -LiteralPath $SkinSource -PathType Container)) { throw "V2 skin source not found: $SkinSource" }
+if (-not (Test-Path -LiteralPath $installScript -PathType Leaf)) { throw "Installer not found: $installScript" }
+if (-not (Test-Path -LiteralPath $releaseReadme -PathType Leaf)) { throw "Release readme not found: $releaseReadme" }
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $skinSourcePath = (Resolve-Path -LiteralPath $SkinSource).Path
@@ -41,10 +47,14 @@ if ($outputPath.TrimEnd('\').Equals($filesystemRoot.TrimEnd('\'), [StringCompari
         $topLevel = @(Get-ChildItem -LiteralPath $outputPath -Force)
         $manager = Join-Path $outputPath 'Manager'
         $package = Join-Path $outputPath 'DeadlineWidgetV2.rmskin'
-        if ($topLevel.Count -ne 2 -or
+        $installer = Join-Path $outputPath 'Install-V2.ps1'
+        $readme = Join-Path $outputPath 'README.txt'
+        if ($topLevel.Count -ne 4 -or
             -not (Test-Path -LiteralPath $manager -PathType Container) -or
             -not (Test-Path -LiteralPath (Join-Path $manager 'DeadlineWidget.Manager.exe') -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $package -PathType Leaf)) {
+            -not (Test-Path -LiteralPath $package -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $installer -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $readme -PathType Leaf)) {
             $unsafeReason = 'existing directory is not an exact V2 release bundle'
         }
     }
@@ -117,7 +127,7 @@ try {
 [Rainstaller]
 Name=Deadline Widget V2
 Author=CourseDeadlineWidget
-Version=2.0.0
+Version=$Version
 Skins=1
 Themes=-1
 Addons=-1
@@ -137,6 +147,8 @@ LaunchCommand=DeadlineWidgetV2\DeadlineWidgetV2.ini
         $zipPath,
         [IO.Compression.CompressionLevel]::Optimal,
         $false)
+    Copy-Item -LiteralPath $installScript -Destination (Join-Path $releaseStage 'Install-V2.ps1')
+    Copy-Item -LiteralPath $releaseReadme -Destination (Join-Path $releaseStage 'README.txt')
 
     if (Test-Path -LiteralPath $outputPath) {
         Move-Item -LiteralPath $outputPath -Destination $previousOutput
@@ -151,7 +163,11 @@ LaunchCommand=DeadlineWidgetV2\DeadlineWidgetV2.ini
     $packageHash = Get-FileHash -LiteralPath (Join-Path $outputPath 'DeadlineWidgetV2.rmskin') -Algorithm SHA256
     Write-Host "Release bundle: $outputPath"
     Write-Host "Package SHA-256: $($packageHash.Hash)"
-    $packageHash
+    [pscustomobject]@{
+        ReleaseDirectory = $outputPath
+        PackagePath = Join-Path $outputPath 'DeadlineWidgetV2.rmskin'
+        PackageSha256 = $packageHash.Hash
+    }
 }
 catch {
     if ($outputBackedUp -and -not (Test-Path -LiteralPath $outputPath) -and (Test-Path -LiteralPath $previousOutput)) {
