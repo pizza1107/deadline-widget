@@ -1,78 +1,143 @@
 # Deadline Widget
 
-一个简洁的 Windows 课程截止日期桌面小组件。它使用 Rainmeter 在桌面显示任务，并通过独立的管理窗口新增和修改 deadline；所有数据都保存在本机，不需要账号或网络连接。
+[![CI](https://github.com/pizza1107/deadline-widget/actions/workflows/ci.yml/badge.svg)](https://github.com/pizza1107/deadline-widget/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D4)](https://github.com/pizza1107/deadline-widget)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-## 功能特点
+一个面向大学课程的 Windows 桌面 deadline 小组件。Rainmeter 将任务固定在桌面层，独立的 WPF 管理器负责新增、编辑、完成和删除任务。程序不要求登录，任务数据只保存在本机。
 
-- 以紧凑列表展示课程任务，适合同时查看 3–8 个 deadline。
-- 根据精确剩余时间自动显示浅灰、淡黄或淡红色。
-- 在管理窗口中新增、编辑、完成、恢复和删除任务。
-- Rainmeter 负责桌面层显示，使用“显示桌面”时小组件仍然可见。
-- 数据完全离线保存，不上传课程或任务信息。
+## 功能
 
-## 工作方式
+- 用 240 × 280 的紧凑卡片显示最多五条任务，并支持滚轮翻页。
+- 按精确剩余时间显示普通、黄色、红色和过期状态。
+- 通过独立管理窗口维护任务，关闭窗口后管理器可以继续在后台响应小组件。
+- 支持中文、emoji、生僻字、JSON Unicode 转义和带时区的截止时间。
+- 使用临时文件、原子替换、最近备份和损坏文件恢复目录保护任务数据。
+- 安装、升级和默认卸载都保留已有任务。
 
-Rainmeter 负责绘制桌面上的截止日期卡片。点击右上角 `＋` 会唤起独立的 DeadlineWidget 管理窗口，在那里编辑任务。
+## 截图
 
-关闭管理窗口只会隐藏窗口，后台管理器仍会保持运行，以便小组件继续读取数据并响应下一次点击。重新登录 Windows 后，管理器会通过启动项在后台启动。
+仓库暂时没有加入可公开使用的截图。截图发布前需要换成虚构课程和日期，并移除桌面、账号名称等个人信息。要求见 [docs/images/README.md](docs/images/README.md)。
 
-## 使用要求
+## 架构
+
+| 组件 | 作用 |
+| --- | --- |
+| C# Core | deadline 模型、时间状态、排序、本地 JSON 保存与恢复 |
+| WPF Manager | 任务管理界面、单实例运行、启动唤醒和 Rainmeter 刷新 |
+| C++ Rainmeter Bridge | 接收小组件点击并启动或唤醒管理器 |
+| Lua Skin | 读取 UTF-8 快照，分页并渲染 Rainmeter 小组件 |
+
+管理器修改任务后先保存主数据，再发布 Rainmeter 快照。皮肤只读取快照，不直接修改主数据。
+
+## 安装
+
+运行环境：
 
 - 64 位 Windows 10 或 Windows 11
 - Rainmeter 4.5 或更高版本
 
-## 安装
+从 [最新 Release](https://github.com/pizza1107/deadline-widget/releases/latest) 下载完整的 `win-x64.zip` 和 `SHA256SUMS.txt`。解压 ZIP 后，在该目录打开 PowerShell：
 
-项目目前还没有提供可供普通用户直接下载的 GitHub Release 安装包。正式发布后，只需安装 Rainmeter，再运行随 Release 提供的安装程序即可。
+```powershell
+.\Install-V2.ps1
+```
 
-在正式安装包发布之前，不建议普通用户运行仓库中的开发脚本；这些脚本用于从源码构建和验证项目。
+安装脚本会复制自包含的 Manager，安装 Rainmeter 皮肤和 x64 桥接 DLL，并创建当前用户的后台启动快捷方式。普通用户不需要另外安装 .NET 运行时。
+
+可以在下载目录验证 SHA-256：
+
+```powershell
+Get-FileHash .\DeadlineWidgetV2-*-win-x64.zip -Algorithm SHA256
+Get-Content .\SHA256SUMS.txt
+```
+
+将 `Get-FileHash` 输出与 `SHA256SUMS.txt` 中对应文件的值逐字比较。
+
+## 升级和卸载
+
+升级时下载新的完整 ZIP，再运行其中的 `Install-V2.ps1`。安装器会替换程序组件，同时保留 deadline 主数据、备份和迁移材料。
+
+默认卸载同样保留数据：
+
+```powershell
+.\Uninstall-V2.ps1
+```
+
+如果确定不再需要任何 V2 数据，可以显式删除：
+
+```powershell
+.\Uninstall-V2.ps1 -RemoveUserData
+```
+
+`-RemoveUserData` 会删除 `%LOCALAPPDATA%\DeadlineWidgetV2`，其中包括任务、备份、恢复材料和日志。它不会删除旧版 `CourseDeadlineWidget` 目录或其他 Rainmeter 皮肤。
+
+## 从源码构建
+
+需要安装：
+
+- .NET 8 SDK。仓库通过 `global.json` 使用 8.0.425，并允许同一 feature band 的更新补丁。
+- PowerShell 5.1 或 PowerShell 7。
+- 可生成 Windows x64 DLL 的 MinGW-w64 `g++.exe`。
+- Rainmeter 仅用于手动运行皮肤，自动化测试不要求安装 Rainmeter。
+
+在仓库根目录执行：
+
+```powershell
+dotnet restore .\DeadlineWidgetV2.sln --locked-mode -warnaserror:NU1901,NU1902,NU1903,NU1904
+dotnet test .\DeadlineWidgetV2.sln -c Release --no-restore
+
+$compiler = (Get-Command g++.exe).Source
+.\tests\Bridge.Tests.ps1 -CompilerPath $compiler
+.\tests\Packaging.Tests.ps1 -DotNetPath (Get-Command dotnet).Source -CompilerPath $compiler
+```
+
+生成本地发布目录：
+
+```powershell
+.\scripts\Build-Package.ps1 `
+  -Version 0.1.0 `
+  -DotNetPath (Get-Command dotnet).Source `
+  -CompilerPath $compiler
+```
+
+输出位于 `artifacts`。构建脚本默认先运行解决方案测试；已经单独运行测试时，可以传入 `-SkipSolutionTests`。
+
+## 测试范围
+
+| 测试层 | 命令 | 主要覆盖范围 |
+| --- | --- | --- |
+| C# 与 Lua | `dotnet test .\DeadlineWidgetV2.sln -c Release` | 时间边界、数据恢复、管理器行为、Unicode 快照、Lua 渲染 |
+| 原生桥接 | `.\tests\Bridge.Tests.ps1 -CompilerPath $compiler` | x64 PE、导出表、启动状态、路径处理、日志轮转 |
+| 打包与安装 | `.\tests\Packaging.Tests.ps1 -CompilerPath $compiler` | `.rmskin` 内容、文件编码、自包含发布、数据保护、安装回滚和卸载 |
+
+GitHub Actions 在 Windows runner 上执行相同层级的验证。版本标签 `v<major>.<minor>.<patch>` 会在所有测试通过后构建 Release 产物和 SHA-256 文件。
 
 ## 数据与隐私
 
-Deadline 数据保存在当前 Windows 用户的 `%LOCALAPPDATA%\DeadlineWidgetV2` 目录中，包括主数据、最近一次备份和供 Rainmeter 读取的显示快照。
+程序不包含账号、遥测或云同步，也不会上传课程信息。
 
-程序不会把数据上传到网络，本仓库也不包含作者个人的 deadline 数据。重新安装或更新程序时，安装脚本会保留已有任务数据。
-
-## 时间与颜色
-
-颜色根据本机当前时间和截止时间之间的精确时长计算：
-
-| 剩余时间 | 显示状态 |
+| 位置 | 内容 |
 | --- | --- |
-| 大于 10 天 | 浅灰色 |
-| 大于 3 天且不超过 10 天 | 淡黄色 |
-| 大于等于 0 且不超过 3 天 | 淡红色 |
-| 已超过截止时间 | 降低透明度并显示“已过期” |
+| `%LOCALAPPDATA%\DeadlineWidgetV2\deadlines.json` | 主任务数据 |
+| `%LOCALAPPDATA%\DeadlineWidgetV2\deadlines.backup.json` | 最近一份有效备份 |
+| `%LOCALAPPDATA%\DeadlineWidgetV2\recovery\` | 无法解析的原始文件副本 |
+| `%LOCALAPPDATA%\DeadlineWidgetV2\migration-backup\` | 旧版迁移前的校验备份 |
+| `%LOCALAPPDATA%\DeadlineWidgetV2\logs\` | 有大小限制的 Manager 和 Bridge 诊断日志 |
+| `%APPDATA%\Rainmeter\DeadlineWidgetV2\display.json` | Rainmeter 使用的 UTF-8 显示快照 |
 
-## 开发者运行
+保存任务时，程序先写入并刷新临时文件，再原子替换主文件。现有主文件有效时会先复制为备份；损坏文件不会被覆盖，而是复制到 `recovery` 后再尝试备份。
 
-从源码开发需要 .NET 8 SDK、PowerShell、Rainmeter 和可生成 64 位 Windows DLL 的 C++ 编译器。构建出的管理器为自包含版本，普通用户不需要另外安装 .NET 运行时。
-
-在仓库根目录运行测试：
-
-```powershell
-dotnet test .\DeadlineWidgetV2.sln -c Release
-```
-
-构建 Rainmeter 皮肤、桥接插件和自包含管理器：
-
-```powershell
-& .\scripts\Build-Package.ps1 `
-  -DotNetPath (Get-Command dotnet).Source `
-  -CompilerPath (Get-Command x86_64-w64-mingw32-g++).Source
-```
-
-构建成功后，发布文件位于 `artifacts`。在测试电脑上安装并验证：
-
-```powershell
-& .\scripts\Install-V2.ps1
-```
-
-`Build-Package.ps1` 会先运行自动化测试，再生成管理器、Rainmeter 皮肤和桥接插件；`Install-V2.ps1` 会安装这些文件，同时保留已有的 deadline 数据。
+提交 issue 或安全报告时，不要上传真实的 `deadlines.json`、显示快照或包含个人路径的日志。
 
 ## 当前限制
 
-- 仅支持 Windows。
-- 暂不提供系统通知。
-- 暂不提供账号、云同步或多设备同步。
-- 暂不支持从课程表或日历导入任务。
+- 只支持 Windows x64。
+- 没有系统通知、账号、云同步或多设备同步。
+- 不能从课程表、日历或学习平台自动导入任务。
+- 每页固定显示五条任务，外观定制仍需要手动修改 Rainmeter 配置。
+- 首个公开 Release 尚未创建，Release 链接会在发布后生效。
+
+## 许可证
+
+项目使用 [MIT License](LICENSE)。
