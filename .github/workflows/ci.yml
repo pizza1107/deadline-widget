@@ -37,8 +37,8 @@ jobs:
 
       - name: Test native bridge
         shell: pwsh
-        run: .\tests\Bridge.Tests.ps1 -CompilerPath C:\msys64\mingw64\bin\g++.exe
+        run: .\tests\Bridge.Tests.ps1 -CompilerPath (Get-Command g++.exe).Source
 
       - name: Test packaging and isolated install
         shell: pwsh
-        run: .\tests\Packaging.Tests.ps1 -DotNetPath (Get-Command dotnet).Source -CompilerPath C:\msys64\mingw64\bin\g++.exe
+        run: .\tests\Packaging.Tests.ps1 -DotNetPath (Get-Command dotnet).Source -CompilerPath (Get-Command g++.exe).Source

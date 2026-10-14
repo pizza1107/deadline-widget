@@ -17,6 +17,8 @@ if ($missing.Count -gt 0) {
 
 $buildScriptText = [IO.File]::ReadAllText($buildScript)
 $packagingTestText = [IO.File]::ReadAllText($PSCommandPath)
+$ciWorkflowText = [IO.File]::ReadAllText((Join-Path $v2Root '.github/workflows/ci.yml'))
+$releaseWorkflowText = [IO.File]::ReadAllText((Join-Path $v2Root '.github/workflows/release.yml'))
 if ($buildScriptText -notmatch [regex]::Escape('$repositoryRoot = $v2Root') -or
     $buildScriptText -notmatch [regex]::Escape("`$workspacePackageCache = Join-Path `$repositoryRoot '.nuget/packages'")) {
     throw 'Build-Package.ps1 does not resolve repository paths from the relocated V2 repository root.'
@@ -81,6 +83,10 @@ function Assert-InstallFails {
 
 Assert-True ($buildScriptText -match '\[switch\]\$SkipSolutionTests') 'Build-Package must expose -SkipSolutionTests.'
 Assert-True ($packagingTestText -match 'SkipSolutionTests\s*=\s*\$true') 'Packaging tests must avoid nested solution tests.'
+foreach ($workflow in @($ciWorkflowText, $releaseWorkflowText)) {
+    Assert-True ($workflow -notmatch [regex]::Escape('C:\msys64\mingw64\bin\g++.exe')) 'GitHub workflows must not hard-code the MSYS2 compiler installation path.'
+    Assert-True ($workflow -match [regex]::Escape('(Get-Command g++.exe).Source')) 'GitHub workflows must resolve the compiler from PATH at runtime.'
+}
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('DeadlineWidgetV2.Packaging.Tests-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testRoot)
