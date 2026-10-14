@@ -10,6 +10,112 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function New-UnicodeShortcut {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$TargetPath,
+        [string]$Arguments,
+        [string]$WorkingDirectory,
+        [string]$Description
+    )
+
+    if (-not ('DeadlineWidget.Installation.ShortcutWriter' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
+
+namespace DeadlineWidget.Installation
+{
+    [ComImport]
+    [Guid("00021401-0000-0000-C000-000000000046")]
+    internal class ShellLinkObject
+    {
+    }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("000214F9-0000-0000-C000-000000000046")]
+    internal interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int maximumPath, IntPtr findData, uint flags);
+        void GetIDList(out IntPtr itemIdList);
+        void SetIDList(IntPtr itemIdList);
+        void GetDescription(IntPtr name, int maximumName);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetWorkingDirectory(IntPtr directory, int maximumPath);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int maximumPath);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string arguments);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int showCommand);
+        void SetShowCmd(int showCommand);
+        void GetIconLocation(IntPtr iconPath, int iconPathLength, out int iconIndex);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string iconPath, int iconIndex);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
+        void Resolve(IntPtr windowHandle, uint flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
+    }
+
+    public static class ShortcutWriter
+    {
+        public static void Create(string shortcutPath, string targetPath, string arguments, string workingDirectory, string description)
+        {
+            object instance = new ShellLinkObject();
+            try
+            {
+                IShellLinkW shortcut = (IShellLinkW)instance;
+                shortcut.SetPath(targetPath);
+                shortcut.SetArguments(arguments ?? string.Empty);
+                shortcut.SetWorkingDirectory(workingDirectory ?? string.Empty);
+                shortcut.SetDescription(description ?? string.Empty);
+                ((IPersistFile)instance).Save(shortcutPath, true);
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(instance);
+            }
+        }
+
+        public static string ReadTarget(string shortcutPath)
+        {
+            return Read(shortcutPath, false);
+        }
+
+        public static string ReadArguments(string shortcutPath)
+        {
+            return Read(shortcutPath, true);
+        }
+
+        private static string Read(string shortcutPath, bool arguments)
+        {
+            object instance = new ShellLinkObject();
+            try
+            {
+                ((IPersistFile)instance).Load(shortcutPath, 0);
+                IShellLinkW shortcut = (IShellLinkW)instance;
+                StringBuilder value = new StringBuilder(32768);
+                if (arguments)
+                    shortcut.GetArguments(value, value.Capacity);
+                else
+                    shortcut.GetPath(value, value.Capacity, IntPtr.Zero, 0);
+                return value.ToString();
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(instance);
+            }
+        }
+    }
+}
+'@
+    }
+
+    [DeadlineWidget.Installation.ShortcutWriter]::Create($Path, $TargetPath, $Arguments, $WorkingDirectory, $Description)
+}
+
 function Get-TreeHashes {
     param([Parameter(Mandatory)][string]$Root)
     $rootPath = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
@@ -200,12 +306,12 @@ try {
     $managerExecutable = [IO.Path]::GetFullPath((Join-Path $managerTarget 'DeadlineWidget.Manager.exe'))
     [void](New-Item -ItemType Directory -Path $StartupRoot -Force)
     $startupShortcutPath = Join-Path $StartupRoot 'DeadlineWidgetV2 Manager.lnk'
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($startupShortcutPath)
-    $shortcut.TargetPath = $managerExecutable
-    $shortcut.Arguments = '--background'
-    $shortcut.WorkingDirectory = $managerTarget
-    $shortcut.Description = 'Deadline Widget background manager'
-    $shortcut.Save()
+    New-UnicodeShortcut `
+        -Path $startupShortcutPath `
+        -TargetPath $managerExecutable `
+        -Arguments '--background' `
+        -WorkingDirectory $managerTarget `
+        -Description 'Deadline Widget background manager'
     if (-not (Test-Path -LiteralPath $startupShortcutPath -PathType Leaf)) { throw 'V2 background manager Startup shortcut was not created.' }
     Assert-ProtectedFileStates -ExpectedStates $protectedBefore
 }

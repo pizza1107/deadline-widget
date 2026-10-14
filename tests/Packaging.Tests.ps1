@@ -218,8 +218,8 @@ try {
     }
     Assert-Equal 'DO-NOT-DELETE' ([IO.File]::ReadAllText((Join-Path $nonBundleOutput 'sentinel.txt')) ) 'Unsafe output validation modified a non-bundle directory.'
 
-    $localRoot = Join-Path $testRoot 'Local AppData 隔离'
-    $appDataRoot = Join-Path $testRoot 'Roaming AppData 隔离'
+    $localRoot = Join-Path $testRoot 'Local AppData 隔离 𠮷'
+    $appDataRoot = Join-Path $testRoot 'Roaming AppData 隔离 𠮷'
     $legacyRoot = Join-Path $localRoot 'CourseDeadlineWidget'
     $v2DataRoot = Join-Path $localRoot 'DeadlineWidgetV2'
     $legacySkinRoot = Join-Path $appDataRoot 'Rainmeter/Skins/DeadlineWidget'
@@ -323,9 +323,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     Assert-Equal ([IO.Path]::GetFullPath($localRoot)) ([IO.File]::ReadAllText((Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'), [Text.UTF8Encoding]::new($false)).Trim()) 'Installer must persist the absolute Local AppData root beside the plugin.'
     $startupShortcut = Join-Path $startupRoot 'DeadlineWidgetV2 Manager.lnk'
     Assert-True (Test-Path -LiteralPath $startupShortcut -PathType Leaf) 'Installer must create the current-user background manager startup shortcut.'
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($startupShortcut)
-    Assert-Equal ([IO.Path]::GetFullPath((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) $shortcut.TargetPath 'Startup shortcut targets the wrong manager executable.'
-    Assert-Equal '--background' $shortcut.Arguments 'Startup shortcut must launch the manager hidden.'
+    Assert-Equal ([IO.Path]::GetFullPath((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) ([DeadlineWidget.Installation.ShortcutWriter]::ReadTarget($startupShortcut)) 'Startup shortcut targets the wrong manager executable.'
+    Assert-Equal '--background' ([DeadlineWidget.Installation.ShortcutWriter]::ReadArguments($startupShortcut)) 'Startup shortcut must launch the manager hidden.'
     Assert-Equal ([IO.Path]::GetFullPath((Join-Path $installRelease 'DeadlineWidgetV2.rmskin'))) ([IO.File]::ReadAllText($fakeLog).Trim()) 'SkinInstaller did not receive the exact V2 package path.'
 
     $migrationSets = @(Get-ChildItem -LiteralPath (Join-Path $v2DataRoot 'migration-backup') -Directory)
