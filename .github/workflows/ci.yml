@@ -17,7 +17,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -25,9 +27,9 @@ jobs:
           update: false
           install: mingw-w64-x86_64-gcc
 
-      - name: Restore
+      - name: Restore locked dependencies and audit
         shell: pwsh
-        run: dotnet restore .\DeadlineWidgetV2.sln
+        run: dotnet restore .\DeadlineWidgetV2.sln --locked-mode -warnaserror:NU1901,NU1902,NU1903,NU1904
 
       - name: Test .NET and Lua
         shell: pwsh
