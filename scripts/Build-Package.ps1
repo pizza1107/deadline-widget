@@ -3,7 +3,8 @@ param(
     [string]$OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts'),
     [string]$DotNetPath = 'dotnet',
     [string]$CompilerPath,
-    [string]$SkinSource = (Join-Path (Split-Path $PSScriptRoot -Parent) 'rainmeter/Skins/DeadlineWidgetV2')
+    [string]$SkinSource = (Join-Path (Split-Path $PSScriptRoot -Parent) 'rainmeter/Skins/DeadlineWidgetV2'),
+    [switch]$SkipSolutionTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,8 +69,10 @@ $workspacePackageCache = Join-Path $repositoryRoot '.nuget/packages'
 try {
     [void](New-Item -ItemType Directory -Path $managerStage, $skinStage, $pluginStage -Force)
 
-    & $DotNetPath test $solutionPath -c Release --nologo
-    if ($LASTEXITCODE -ne 0) { throw "V2 solution tests failed: $LASTEXITCODE" }
+    if (-not $SkipSolutionTests) {
+        & $DotNetPath test $solutionPath -c Release --nologo
+        if ($LASTEXITCODE -ne 0) { throw "V2 solution tests failed: $LASTEXITCODE" }
+    }
 
     try {
         if (-not $env:NUGET_PACKAGES -and (Test-Path -LiteralPath $workspacePackageCache -PathType Container)) {

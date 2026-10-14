@@ -15,6 +15,7 @@ if ($missing.Count -gt 0) {
 }
 
 $buildScriptText = [IO.File]::ReadAllText($buildScript)
+$packagingTestText = [IO.File]::ReadAllText($PSCommandPath)
 if ($buildScriptText -notmatch [regex]::Escape('$repositoryRoot = $v2Root') -or
     $buildScriptText -notmatch [regex]::Escape("`$workspacePackageCache = Join-Path `$repositoryRoot '.nuget/packages'")) {
     throw 'Build-Package.ps1 does not resolve repository paths from the relocated V2 repository root.'
@@ -77,6 +78,9 @@ function Assert-InstallFails {
     Assert-True ($failure -like $ExpectedMessage) "Install failed for the wrong reason. Expected: $ExpectedMessage; actual: $failure"
 }
 
+Assert-True ($buildScriptText -match '\[switch\]\$SkipSolutionTests') 'Build-Package must expose -SkipSolutionTests.'
+Assert-True ($packagingTestText -match 'SkipSolutionTests\s*=\s*\$true') 'Packaging tests must avoid nested solution tests.'
+
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('DeadlineWidgetV2.Packaging.Tests-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testRoot)
 $savedLocalAppData = $env:LOCALAPPDATA
@@ -100,6 +104,7 @@ try {
         OutputDirectory = $releaseRoot
         DotNetPath = $DotNetPath
         SkinSource = $skinSource
+        SkipSolutionTests = $true
     }
     if ($CompilerPath) { $buildArguments.CompilerPath = $CompilerPath }
     $buildResult = & $buildScript @buildArguments
