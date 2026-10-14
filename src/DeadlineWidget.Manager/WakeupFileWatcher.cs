@@ -6,9 +6,13 @@ public sealed class WakeupFileWatcher : IDisposable
 {
     private readonly FileSystemWatcher _watcher;
     private readonly Func<Task> _activate;
+    private readonly IDiagnosticSink _diagnostics;
     private int _activationPending;
 
-    public WakeupFileWatcher(string wakeupFilePath, Func<Task> activate)
+    public WakeupFileWatcher(
+        string wakeupFilePath,
+        Func<Task> activate,
+        IDiagnosticSink? diagnostics = null)
     {
         if (string.IsNullOrWhiteSpace(wakeupFilePath) || !Path.IsPathFullyQualified(wakeupFilePath))
         {
@@ -16,6 +20,7 @@ public sealed class WakeupFileWatcher : IDisposable
         }
 
         _activate = activate ?? throw new ArgumentNullException(nameof(activate));
+        _diagnostics = diagnostics ?? NullDiagnosticSink.Instance;
         var directory = Path.GetDirectoryName(wakeupFilePath)!;
         Directory.CreateDirectory(directory);
         _watcher = new FileSystemWatcher(directory, Path.GetFileName(wakeupFilePath))
@@ -46,8 +51,15 @@ public sealed class WakeupFileWatcher : IDisposable
         {
             await _activate();
         }
-        catch
+        catch (Exception exception)
         {
+            try
+            {
+                _diagnostics.Write("wakeup-watcher", exception);
+            }
+            catch
+            {
+            }
         }
         finally
         {

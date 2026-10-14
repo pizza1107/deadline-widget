@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using DeadlineWidget.Core;
 
@@ -26,9 +27,13 @@ public partial class App : Application
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
+        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var diagnostics = new FileDiagnosticSink(Path.Combine(localApplicationData, "DeadlineWidgetV2", "logs"));
+
         _coordinator = new SingleInstanceCoordinator(
             new WindowsSingleInstancePlatform(),
-            ActivateMainWindowAsync);
+            ActivateMainWindowAsync,
+            diagnostics);
 
         try
         {
@@ -39,11 +44,10 @@ public partial class App : Application
                 return;
             }
 
-            var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var paths = ManagerPaths.FromAppDataRoots(
                 localApplicationData,
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
-            _wakeupWatcher = new WakeupFileWatcher(paths.WakeupFilePath, ActivateMainWindowAsync);
+            _wakeupWatcher = new WakeupFileWatcher(paths.WakeupFilePath, ActivateMainWindowAsync, diagnostics);
             await new LegacyDeadlineImporter(localApplicationData).ImportOnceAsync();
 
             var viewModel = new ManagerViewModel(

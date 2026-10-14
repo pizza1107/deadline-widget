@@ -56,6 +56,23 @@ public sealed class SingleInstanceCoordinatorTests
     }
 
     [TestMethod]
+    public async Task PrimaryListener_RecordsActivationFailureWithoutFaultingDelivery()
+    {
+        var platform = new FakePlatform { Acquired = true };
+        var diagnostics = new RecordingDiagnosticSink();
+        await using var coordinator = new SingleInstanceCoordinator(
+            platform,
+            () => throw new IOException("activation failed"),
+            diagnostics);
+        Assert.IsTrue(await coordinator.StartAsync());
+
+        await platform.DeliverAsync("ACTIVATE");
+
+        Assert.AreEqual("single-instance", diagnostics.Component);
+        Assert.AreEqual("activation failed", diagnostics.Exception?.Message);
+    }
+
+    [TestMethod]
     public async Task Dispose_CancelsListenerAndReleasesOwnedMutex()
     {
         var platform = new FakePlatform { Acquired = true };
@@ -160,6 +177,18 @@ public sealed class SingleInstanceCoordinatorTests
     {
         public override void Post(SendOrPostCallback callback, object? state)
         {
+        }
+    }
+
+    private sealed class RecordingDiagnosticSink : IDiagnosticSink
+    {
+        public string? Component { get; private set; }
+        public Exception? Exception { get; private set; }
+
+        public void Write(string component, Exception exception)
+        {
+            Component = component;
+            Exception = exception;
         }
     }
 }
