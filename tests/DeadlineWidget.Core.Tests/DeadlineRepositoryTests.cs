@@ -104,6 +104,20 @@ public sealed class DeadlineRepositoryTests
     }
 
     [TestMethod]
+    public async Task SaveAsync_RetriesWindowsUnableToRemoveReplacedFileError()
+    {
+        using var sandbox = new TestDirectory();
+        var replacer = new TransientWindowsFileReplacer { FailuresRemaining = 2 };
+        var repository = new DeadlineRepository(sandbox.Path, replacer);
+        await repository.SaveAsync([Item("第一版", 1)]);
+
+        await repository.SaveAsync([Item("第二版", 2)]);
+
+        Assert.AreEqual(3, replacer.ReplaceCount);
+        Assert.AreEqual("第二版", (await repository.LoadAsync()).Single().Title);
+    }
+
+    [TestMethod]
     public async Task LoadAsync_RecoversFromBackupAndPreservesCorruptPrimaryBytes()
     {
         using var sandbox = new TestDirectory();
@@ -171,6 +185,23 @@ public sealed class DeadlineRepositoryTests
             {
                 FailNextReplacement = false;
                 throw new IOException("Test replacement failure.");
+            }
+
+            File.Replace(sourcePath, destinationPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+    }
+
+    private sealed class TransientWindowsFileReplacer : IDeadlineFileReplacer
+    {
+        public int FailuresRemaining { get; set; }
+        public int ReplaceCount { get; private set; }
+
+        public void Replace(string sourcePath, string destinationPath)
+        {
+            ReplaceCount++;
+            if (FailuresRemaining-- > 0)
+            {
+                throw new IOException("Unable to remove file to be replaced.", unchecked((int)0x80070497));
             }
 
             File.Replace(sourcePath, destinationPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
