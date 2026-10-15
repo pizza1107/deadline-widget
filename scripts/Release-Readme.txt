@@ -1,28 +1,24 @@
-Deadline Widget V2
-==================
+﻿Deadline Widget 安装说明
+========================
 
-Requirements
-------------
-- Windows 10 or Windows 11 (x64)
-- Rainmeter 4.5 or later
+适用系统：64 位 Windows 10 或 Windows 11。
+安装前请先安装 Rainmeter 4.5 或更新版本：https://www.rainmeter.net/
+不需要单独安装 .NET。
 
-Install or upgrade
-------------------
-1. Keep every file and the Manager folder together in this release directory.
-2. Open PowerShell in this directory.
-3. Run: .\Install-V2.ps1
-4. Approve the Rainmeter skin installation when prompted.
+安装或升级
+----------
+1. 保持本目录里的 Manager 文件夹、DeadlineWidgetV2.rmskin 和两个 .ps1 文件在一起。
+2. 在文件资源管理器中打开本目录，在地址栏输入 powershell 并按回车。
+3. 运行：.\Install-V2.ps1
+4. Rainmeter 弹出皮肤安装确认时，点击“安装”。
 
-The installer preserves existing deadline data. After installation, use the
-plus button on the widget to open the deadline manager.
+桌面出现 Deadlines 卡片后，点击右上角的“＋”打开管理窗口。
+升级时用新版完整压缩包重复以上步骤；已有任务会保留。
 
-Uninstall
----------
-Run: .\Uninstall-V2.ps1
+卸载
+----
+在本目录运行：.\Uninstall-V2.ps1
+默认卸载会保留任务数据和备份。
+只有确定不再需要数据时，才运行：.\Uninstall-V2.ps1 -RemoveUserData
 
-This removes the program components but preserves deadline data. To remove the
-V2 data directory too, run: .\Uninstall-V2.ps1 -RemoveUserData
-
-Project documentation
----------------------
-https://github.com/pizza1107/deadline-widget
+更多说明与常见问题：https://github.com/pizza1107/deadline-widget
