@@ -17,8 +17,11 @@
 
 ## 截图
 
-仓库暂时没有加入可公开使用的截图。截图发布前需要换成虚构课程和日期，并移除桌面、账号名称等个人信息。要求见 [docs/images/README.md](docs/images/README.md)。
+<p align="center">
+  <img src="C:\Users\68827\Documents\ChatGPT\todo_list\docs\images" alt="Deadline Widget 桌面效果示例" width="320">
+</p>
 
+<p align="center">Deadline Widget 桌面效果示例</p>
 ## 架构
 
 | 组件 | 作用 |
@@ -26,7 +29,7 @@
 | C# Core | deadline 模型、时间状态、排序、本地 JSON 保存与恢复 |
 | WPF Manager | 任务管理界面、单实例运行、启动唤醒和 Rainmeter 刷新 |
 | C++ Rainmeter Bridge | 接收小组件点击并启动或唤醒管理器 |
-| Lua Skin | 读取 UTF-8 快照，分页并渲染 Rainmeter 小组件 |
+| Lua Skin | 读取快照，分页并渲染 Rainmeter 小组件 |
 
 管理器修改任务后先保存主数据，再发布 Rainmeter 快照。皮肤只读取快照，不直接修改主数据。
 
