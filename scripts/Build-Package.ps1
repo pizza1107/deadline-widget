@@ -17,11 +17,13 @@ $managerProject = Join-Path $v2Root 'src/DeadlineWidget.Manager/DeadlineWidget.M
 $bridgeBuild = Join-Path $PSScriptRoot 'Build-Bridge.ps1'
 $installScript = Join-Path $PSScriptRoot 'Install-V2.ps1'
 $uninstallScript = Join-Path $PSScriptRoot 'Uninstall-V2.ps1'
-$releaseReadme = Join-Path $PSScriptRoot 'Release-Readme.txt'
+$releaseReadme = Join-Path $repositoryRoot 'README.md'
+$releaseScreenshot = Join-Path $repositoryRoot 'docs/images/example.png'
 if (-not (Test-Path -LiteralPath $SkinSource -PathType Container)) { throw "V2 skin source not found: $SkinSource" }
 if (-not (Test-Path -LiteralPath $installScript -PathType Leaf)) { throw "Installer not found: $installScript" }
 if (-not (Test-Path -LiteralPath $uninstallScript -PathType Leaf)) { throw "Uninstaller not found: $uninstallScript" }
 if (-not (Test-Path -LiteralPath $releaseReadme -PathType Leaf)) { throw "Release readme not found: $releaseReadme" }
+if (-not (Test-Path -LiteralPath $releaseScreenshot -PathType Leaf)) { throw "Release screenshot not found: $releaseScreenshot" }
 
 $outputPath = [IO.Path]::GetFullPath($OutputDirectory)
 $skinSourcePath = (Resolve-Path -LiteralPath $SkinSource).Path
@@ -51,14 +53,19 @@ if ($outputPath.TrimEnd('\').Equals($filesystemRoot.TrimEnd('\'), [StringCompari
         $package = Join-Path $outputPath 'DeadlineWidgetV2.rmskin'
         $installer = Join-Path $outputPath 'Install-V2.ps1'
         $uninstaller = Join-Path $outputPath 'Uninstall-V2.ps1'
-        $readme = Join-Path $outputPath 'README.txt'
-        if ($topLevel.Count -ne 5 -or
+        $oldReadme = Join-Path $outputPath 'README.txt'
+        $newReadme = Join-Path $outputPath 'README.md'
+        $screenshot = Join-Path $outputPath 'docs/images/example.png'
+        $hasOldLayout = $topLevel.Count -eq 5 -and (Test-Path -LiteralPath $oldReadme -PathType Leaf)
+        $hasNewLayout = $topLevel.Count -eq 6 -and
+            (Test-Path -LiteralPath $newReadme -PathType Leaf) -and
+            (Test-Path -LiteralPath $screenshot -PathType Leaf)
+        if (-not ($hasOldLayout -or $hasNewLayout) -or
             -not (Test-Path -LiteralPath $manager -PathType Container) -or
             -not (Test-Path -LiteralPath (Join-Path $manager 'DeadlineWidget.Manager.exe') -PathType Leaf) -or
             -not (Test-Path -LiteralPath $package -PathType Leaf) -or
             -not (Test-Path -LiteralPath $installer -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $uninstaller -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $readme -PathType Leaf)) {
+            -not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
             $unsafeReason = 'existing directory is not an exact V2 release bundle'
         }
     }
@@ -153,7 +160,10 @@ LaunchCommand=DeadlineWidgetV2\DeadlineWidgetV2.ini
         $false)
     Copy-Item -LiteralPath $installScript -Destination (Join-Path $releaseStage 'Install-V2.ps1')
     Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path $releaseStage 'Uninstall-V2.ps1')
-    Copy-Item -LiteralPath $releaseReadme -Destination (Join-Path $releaseStage 'README.txt')
+    Copy-Item -LiteralPath $releaseReadme -Destination (Join-Path $releaseStage 'README.md')
+    $releaseImageDirectory = Join-Path $releaseStage 'docs/images'
+    [void](New-Item -ItemType Directory -Path $releaseImageDirectory -Force)
+    Copy-Item -LiteralPath $releaseScreenshot -Destination (Join-Path $releaseImageDirectory 'example.png')
 
     if (Test-Path -LiteralPath $outputPath) {
         Move-Item -LiteralPath $outputPath -Destination $previousOutput

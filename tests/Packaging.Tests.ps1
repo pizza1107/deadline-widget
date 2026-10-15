@@ -118,13 +118,17 @@ try {
     $buildResult = & $buildScript @buildArguments
 
     $releaseFiles = @(Get-ChildItem -LiteralPath $releaseRoot -Force | Sort-Object Name)
-    Assert-Equal 5 $releaseFiles.Count 'Release bundle must contain exactly the manager, rmskin, installer, uninstaller, and readme.'
+    Assert-Equal 6 $releaseFiles.Count 'Release bundle must contain the manager, rmskin, installer, uninstaller, readme, and screenshot directory.'
     Assert-Equal 'DeadlineWidgetV2.rmskin' $releaseFiles[0].Name 'Release package name is wrong.'
-    Assert-Equal 'Install-V2.ps1' $releaseFiles[1].Name 'Release installer is missing.'
-    Assert-Equal 'Manager' $releaseFiles[2].Name 'Published manager directory is missing.'
-    Assert-True $releaseFiles[2].PSIsContainer 'Manager bundle entry must be a directory.'
-    Assert-Equal 'README.txt' $releaseFiles[3].Name 'Release readme is missing.'
-    Assert-Equal 'Uninstall-V2.ps1' $releaseFiles[4].Name 'Release uninstaller is missing.'
+    Assert-Equal 'docs' $releaseFiles[1].Name 'Release screenshot directory is missing.'
+    Assert-True $releaseFiles[1].PSIsContainer 'Release screenshot entry must be a directory.'
+    Assert-Equal 'Install-V2.ps1' $releaseFiles[2].Name 'Release installer is missing.'
+    Assert-Equal 'Manager' $releaseFiles[3].Name 'Published manager directory is missing.'
+    Assert-True $releaseFiles[3].PSIsContainer 'Manager bundle entry must be a directory.'
+    Assert-Equal 'README.md' $releaseFiles[4].Name 'Release readme is missing.'
+    Assert-Equal 'Uninstall-V2.ps1' $releaseFiles[5].Name 'Release uninstaller is missing.'
+    Assert-BytesEqual ([IO.File]::ReadAllBytes((Join-Path $v2Root 'README.md'))) ([IO.File]::ReadAllBytes((Join-Path $releaseRoot 'README.md'))) 'Release README must match the repository README byte-for-byte.'
+    Assert-BytesEqual ([IO.File]::ReadAllBytes((Join-Path $v2Root 'docs/images/example.png'))) ([IO.File]::ReadAllBytes((Join-Path $releaseRoot 'docs/images/example.png'))) 'Release screenshot must match the README image.'
 
     $managerRoot = Join-Path $releaseRoot 'Manager'
     foreach ($requiredRuntimeFile in @('DeadlineWidget.Manager.exe', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
