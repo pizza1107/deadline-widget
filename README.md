@@ -58,4 +58,4 @@
 
 ## 开发与许可
 
-项目由 C# 管理器、Rainmeter 皮肤和原生桥接组件组成。从源码构建、运行测试或参与开发，请看 [CONTRIBUTING.md](CONTRIBUTING.md)。项目采用 [MIT License](LICENSE)。
+项目由 C# 管理器、Rainmeter 皮肤和原生桥接组件组成。从源码构建、运行测试或参与开发，请看 [CONTRIBUTING.md](https://github.com/pizza1107/deadline-widget/blob/master/CONTRIBUTING.md)。项目采用 [MIT License](https://github.com/pizza1107/deadline-widget/blob/master/LICENSE)。
