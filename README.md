@@ -5,8 +5,6 @@
 
 把课程作业、考试和其他截止日期放在 Windows 桌面上。小组件通过 Rainmeter 显示；点击右上角的“＋”，就能打开管理窗口添加或修改任务。无需登录，任务保存在自己的电脑上。
 
-> **下载状态：** 首个正式安装包尚未发布。[Releases 页面](https://github.com/pizza1107/deadline-widget/releases)出现 `DeadlineWidgetV2-v…-win-x64.zip` 后，才能按下文直接安装。GitHub 自动生成的 `Source code.zip` 只是源代码，不是安装包。
-
 <img src="docs/images/example.png" alt="Deadline Widget 桌面效果" width="320">
 
 ## 下载与安装
@@ -33,7 +31,6 @@
 - 小组件每页显示最多五条任务。任务更多时，将鼠标放在小组件上滚动翻页。
 - 距截止时间不超过 **10 天**时显示黄色，不超过 **3 天**时显示红色；过期任务显示为过期状态。
 
-关闭管理窗口后，仍可再次点击小组件的“＋”打开它。
 
 ## 升级与卸载
 
