@@ -18,7 +18,7 @@
 ## 截图
 
 <p align="center">
-  <img src="C:\Users\68827\Documents\ChatGPT\todo_list\docs\images" alt="Deadline Widget 桌面效果示例" width="320">
+  <img src="docs/images/deadline-widget-example.png" alt="Deadline Widget 桌面效果示例" width="320">
 </p>
 
 <p align="center">Deadline Widget 桌面效果示例</p>
