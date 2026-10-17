@@ -20,6 +20,7 @@ struct Dependencies {
     std::function<LaunchOutcome(const std::wstring&, const std::wstring&, int)> start;
     std::function<void(std::uintptr_t)> close;
     std::function<void(const std::wstring&, const std::wstring&, int, unsigned long)> record;
+    std::function<std::wstring()> readSnapshot;
 };
 
 std::wstring readKnownFolderRoot();
@@ -28,10 +29,13 @@ class Controller {
 public:
     explicit Controller(Dependencies dependencies);
     int latest() const noexcept;
+    void refreshSnapshot() noexcept;
+    const wchar_t* snapshot() const noexcept;
     void dispatch(const wchar_t* command) noexcept;
 
 private:
     Dependencies operations_;
     std::atomic<int> status_{0};
+    std::wstring snapshot_;
 };
 }

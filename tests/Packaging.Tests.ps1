@@ -206,7 +206,7 @@ try {
     $objdumpPath = Join-Path (Split-Path $CompilerPath -Parent) 'objdump.exe'
     $exportText = (& $objdumpPath '-p' $pluginPath | Out-String)
     if ($LASTEXITCODE -ne 0) { throw 'Independent packaged bridge export inspection failed.' }
-    Assert-Equal 'ExecuteBang,Finalize,Initialize,Reload,Update' ((Get-BridgeExportNames -Text $exportText -Format ObjDump) -join ',') 'Packaged bridge exports are wrong.'
+    Assert-Equal 'ExecuteBang,Finalize,GetString,Initialize,Reload,Update' ((Get-BridgeExportNames -Text $exportText -Format ObjDump) -join ',') 'Packaged bridge exports are wrong.'
     $peBytes = [IO.File]::ReadAllBytes($pluginPath)
     $peOffset = [BitConverter]::ToInt32($peBytes, 0x3c)
     Assert-True ([BitConverter]::ToUInt16($peBytes, $peOffset + 4) -eq 0x8664) 'Packaged plugin is not x64.'

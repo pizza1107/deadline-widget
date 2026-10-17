@@ -281,6 +281,15 @@ local function labelsFromSkin()
 end
 
 local function readSnapshot()
+    if SKIN:GetVariable("TestMode") ~= "1" then
+        local ok, contents = pcall(function()
+            return SKIN:GetMeasure("MeasureBridge"):GetStringValue()
+        end)
+        if ok and type(contents) == "string" and contents ~= "" then
+            return contents
+        end
+        return nil
+    end
     local path = SKIN:GetVariable("SnapshotPath")
     local file = io.open(path, "rb")
     if not file then

@@ -7,6 +7,16 @@ Controller::Controller(Dependencies dependencies) : operations_(std::move(depend
 
 int Controller::latest() const noexcept { return status_.load(); }
 
+void Controller::refreshSnapshot() noexcept {
+    try {
+        snapshot_ = operations_.readSnapshot ? operations_.readSnapshot() : std::wstring{};
+    } catch (...) {
+        snapshot_.clear();
+    }
+}
+
+const wchar_t* Controller::snapshot() const noexcept { return snapshot_.c_str(); }
+
 void Controller::dispatch(const wchar_t* command) noexcept {
     std::wstring root;
     std::wstring text;

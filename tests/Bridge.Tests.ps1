@@ -20,7 +20,7 @@ function Assert-ExportFixture {
     try { $names = @(Get-BridgeExportNames -Text $Text -Format $Format) } catch { $errorMessage = $_.Exception.Message }
     if ($Accepted) {
         if ($errorMessage) { throw "Fixture $Label was rejected: $errorMessage" }
-        if (($names -join ',') -cne 'ExecuteBang,Finalize,Initialize,Reload,Update') { throw "Wrong exports in fixture $Label" }
+        if (($names -join ',') -cne 'ExecuteBang,Finalize,GetString,Initialize,Reload,Update') { throw "Wrong exports in fixture $Label" }
     } elseif (-not $errorMessage) { throw "Fixture $Label should have been rejected" }
     if ($ExpectedError -and $errorMessage -notlike $ExpectedError) { throw "Fixture $Label failed for the wrong reason: $errorMessage" }
     $script:exportAssertions++
@@ -31,8 +31,8 @@ $objdump = @'
 Export Flags                    0
 Ordinal Base                    1
 Number in:
-    Export Address Table        00000005
-    [Name Pointer/Ordinal] Table 00000005
+    Export Address Table        00000006
+    [Name Pointer/Ordinal] Table 00000006
 Table Addresses
     Export Address Table        0000000000008028
     Name Pointer Table          0000000000008040
@@ -45,6 +45,7 @@ Export Address Table -- Ordinal Base 1
     [   2] +base[   3] 00001030 Export RVA
     [   3] +base[   4] 00001040 Export RVA
     [   4] +base[   5] 00001050 Export RVA
+    [   5] +base[   6] 00001060 Export RVA
 
 [Ordinal/Name Pointer] Table -- Ordinal Base 1
               Ordinal   Hint Name
@@ -53,6 +54,7 @@ Export Address Table -- Ordinal Base 1
     [   2] +base[   3] 0002 Initialize
     [   3] +base[   4] 0003 Reload
     [   4] +base[   5] 0004 Update
+    [   5] +base[   6] 0005 GetString
 
 The Function Table (interpreted .pdata section contents)
 '@
@@ -60,14 +62,14 @@ Assert-ExportFixture $objdump -Label 'complete objdump export table'
 Assert-ExportFixture ($objdump -replace '\r?\n', "`r`n") -Label 'Windows CRLF objdump output'
 $oldObjdump = $objdump -replace '\[Ordinal/Name Pointer\] Table -- Ordinal Base 1', '[Ordinal/Name Pointer] Table' -replace '(?m)^\s+Ordinal\s+Hint Name\r?\n', '' -replace '(?m)(\[\s*\d+\]) \+base\[\s*\d+\] [0-9a-f]{4} (\S+)\s*$', '$1 $2'
 Assert-ExportFixture $oldObjdump -Label 'older objdump named records'
-$extraDecorated = $objdump.Replace('00000005', '00000006').Replace("`n[Ordinal/Name Pointer]", "`n    [   5] +base[   6] 00001060 Export RVA`n`n[Ordinal/Name Pointer]").Replace("`nThe Function Table", "`n    [   5] +base[   6] 0005 Extra@4`n`nThe Function Table")
-Assert-ExportFixture $extraDecorated -Accepted $false -Label 'extra decorated export Extra@4' -ExpectedError '*found 6:*Extra@4*'
-$extraOrdinal = $objdump.Replace('Export Address Table        00000005', 'Export Address Table        00000006').Replace("`n[Ordinal/Name Pointer]", "`n    [   5] +base[   6] 00001060 Export RVA`n`n[Ordinal/Name Pointer]")
+$extraDecorated = $objdump.Replace('00000006', '00000007').Replace("`n[Ordinal/Name Pointer]", "`n    [   6] +base[   7] 00001070 Export RVA`n`n[Ordinal/Name Pointer]").Replace("`nThe Function Table", "`n    [   6] +base[   7] 0006 Extra@4`n`nThe Function Table")
+Assert-ExportFixture $extraDecorated -Accepted $false -Label 'extra decorated export Extra@4' -ExpectedError '*found 7:*Extra@4*'
+$extraOrdinal = $objdump.Replace('Export Address Table        00000006', 'Export Address Table        00000007').Replace("`n[Ordinal/Name Pointer]", "`n    [   6] +base[   7] 00001070 Export RVA`n`n[Ordinal/Name Pointer]")
 Assert-ExportFixture $extraOrdinal -Accepted $false -Label 'extra ordinal-only export' -ExpectedError '*ordinal-only export*'
 Assert-ExportFixture ($objdump.Replace('0004 Update', '0004 Update@4')) -Accepted $false -Label 'decorated required export'
 Assert-ExportFixture ($objdump.Replace('0004 Update', '0004 Reload')) -Accepted $false -Label 'duplicate named export'
 Assert-ExportFixture ($objdump.Replace('00001050 Export RVA', '00001050 Forwarder RVA -- other.Update')) -Accepted $false -Label 'forwarded export'
-Assert-ExportFixture ($objdump.Replace('00000005', '00000006')) -Accepted $false -Label 'declared count disagrees with records'
+Assert-ExportFixture ($objdump.Replace('00000006', '00000007')) -Accepted $false -Label 'declared count disagrees with records'
 Assert-ExportFixture ($objdump.Replace('    [   4] +base[   5] 0004 Update', '    [   4] malformed record')) -Accepted $false -Label 'unparsed named record'
 Assert-ExportFixture ($objdump.Replace('    [   4] +base[   5] 00001050 Export RVA', '    [   4] malformed address record')) -Accepted $false -Label 'unparsed ordinal record'
 Assert-ExportFixture ($objdump.Replace('    [   4] +base[   5] 0004 Update', '    [   8] +base[   9] 0004 Update')) -Accepted $false -Label 'name has no matching ordinal'
@@ -78,18 +80,20 @@ $dumpbin = @'
           3    2 00001030 Initialize
           4    3 00001040 Reload
           5    4 00001050 Update
+          6    5 00001060 GetString
 
   Summary
 '@
 Assert-ExportFixture $dumpbin -Format DumpBin -Label 'dumpbin named records'
-Assert-ExportFixture ($dumpbin.Replace('  Summary', "          6    5 00001060 Extra@4`n`n  Summary")) -Format DumpBin -Accepted $false -Label 'dumpbin extra decorated export' -ExpectedError '*found 6:*Extra@4*'
-Assert-ExportFixture ($dumpbin.Replace('  Summary', "          6      00001060 [NONAME]`n`n  Summary")) -Format DumpBin -Accepted $false -Label 'dumpbin ordinal-only export'
+Assert-ExportFixture ($dumpbin.Replace('  Summary', "          7    6 00001070 Extra@4`n`n  Summary")) -Format DumpBin -Accepted $false -Label 'dumpbin extra decorated export' -ExpectedError '*found 7:*Extra@4*'
+Assert-ExportFixture ($dumpbin.Replace('  Summary', "          7      00001070 [NONAME]`n`n  Summary")) -Format DumpBin -Accepted $false -Label 'dumpbin ordinal-only export'
 Assert-ExportFixture ($dumpbin.Replace('00001050 Update', '00001050 Update = other.Update')) -Format DumpBin -Accepted $false -Label 'dumpbin forwarder'
 Write-Host "PASS: $script:exportAssertions export-table fixtures"
 
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) ('DeadlineWidgetBridge.Tests-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testDirectory)
 $savedLocalAppData = $env:LOCALAPPDATA
+$savedAppData = $env:APPDATA
 $savedFakeManagerLog = $env:FAKE_MANAGER_LOG
 $savedFakeManagerExitCode = $env:FAKE_MANAGER_EXIT_CODE
 try {
@@ -123,6 +127,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Harness compilation failed: $LASTEXITCODE" }
     $env:LOCALAPPDATA = Join-Path $testDirectory 'Local Data 测试'
     [void](New-Item -ItemType Directory -Path $env:LOCALAPPDATA)
+    $env:APPDATA = Join-Path $testDirectory 'Roaming Data 中文'
+    $snapshotDirectory = Join-Path $env:APPDATA 'Rainmeter/DeadlineWidgetV2'
+    [void](New-Item -ItemType Directory -Path $snapshotDirectory -Force)
+    [IO.File]::WriteAllText(
+        (Join-Path $snapshotDirectory 'display.json'),
+        '{"version":1,"title":"中文路径"}',
+        [Text.UTF8Encoding]::new($true))
     & $harness $testDll
     if ($LASTEXITCODE -ne 0) { throw "Native contract failed: $LASTEXITCODE" }
     $diagnosticPath = Join-Path $env:LOCALAPPDATA 'DeadlineWidgetV2/logs/bridge.log'
@@ -139,9 +150,10 @@ try {
     $secondLines = @(Get-Content -LiteralPath $diagnosticPath -Encoding utf8)
     if ($secondLines.Count -ne 2) { throw 'Rotated active log must contain only the new diagnostics.' }
     $backupPath = "$diagnosticPath.1"
-    if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash -cne $oversizedHash) {
-        throw 'Oversized bridge log was not moved byte-for-byte to bridge.log.1.'
+    $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
+    $backupHash = if ($backupExists) { (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash } else { '<missing>' }
+    if (-not $backupExists -or $backupHash -cne $oversizedHash) {
+        throw "Oversized bridge log was not moved byte-for-byte to bridge.log.1. Expected $oversizedHash; found $backupHash."
     }
     $outputs = @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Recurse -File)
     if ($outputs.Count -ne 2 -or $outputs.FullName -notcontains $diagnosticPath -or $outputs.FullName -notcontains $backupPath) { throw 'Bridge wrote outside its bounded log destinations.' }
@@ -188,6 +200,7 @@ try {
     Write-Host "Architecture: $($build.Architecture)"
 } finally {
     $env:LOCALAPPDATA = $savedLocalAppData
+    $env:APPDATA = $savedAppData
     $env:FAKE_MANAGER_LOG = $savedFakeManagerLog
     $env:FAKE_MANAGER_EXIT_CODE = $savedFakeManagerExitCode
     $resolvedTestDirectory = [IO.Path]::GetFullPath($testDirectory)

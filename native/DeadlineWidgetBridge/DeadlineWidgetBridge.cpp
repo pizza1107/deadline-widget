@@ -52,6 +52,61 @@ std::wstring readLocalRoot() {
     value.resize(length);
     return value;
 }
+
+std::wstring readRoamingRoot() {
+#ifdef DEADLINE_WIDGET_BRIDGE_TEST_KNOWN_FOLDER_FROM_ENVIRONMENT
+    const DWORD capacity = GetEnvironmentVariableW(L"APPDATA", nullptr, 0);
+    if (!capacity) return {};
+    std::wstring value(capacity, L'\0');
+    const DWORD length = GetEnvironmentVariableW(L"APPDATA", value.data(), capacity);
+    if (length == 0 || length >= capacity) return {};
+    value.resize(length);
+    return value;
+#else
+    struct KnownFolderPath {
+        PWSTR value = nullptr;
+        ~KnownFolderPath() { CoTaskMemFree(value); }
+    } path;
+    const HRESULT result = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, nullptr, &path.value);
+    if (FAILED(result) || !path.value || !*path.value) return {};
+    return path.value;
+#endif
+}
+
+std::wstring readSnapshot() {
+    constexpr LONGLONG maximumBytes = 4LL * 1024 * 1024;
+    const std::wstring root = readRoamingRoot();
+    if (root.empty()) return {};
+    const std::wstring path = root + L"\\Rainmeter\\DeadlineWidgetV2\\display.json";
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return {};
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > maximumBytes) {
+        CloseHandle(file);
+        return {};
+    }
+    std::string bytes(static_cast<size_t>(size.QuadPart), '\0');
+    DWORD read = 0;
+    const bool readOk = ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr) != FALSE;
+    CloseHandle(file);
+    if (!readOk || read != bytes.size()) return {};
+    size_t offset = 0;
+    if (bytes.size() >= 3 && static_cast<unsigned char>(bytes[0]) == 0xef &&
+        static_cast<unsigned char>(bytes[1]) == 0xbb && static_cast<unsigned char>(bytes[2]) == 0xbf) {
+        offset = 3;
+    }
+    const int inputSize = static_cast<int>(bytes.size() - offset);
+    if (inputSize <= 0) return {};
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data() + offset, inputSize, nullptr, 0);
+    if (count <= 0) return {};
+    std::wstring contents(count, L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data() + offset, inputSize,
+                            contents.data(), count) != count || contents.find(L'\0') != std::wstring::npos) {
+        return {};
+    }
+    return contents;
+}
 }
 
 namespace bridge {
@@ -146,7 +201,8 @@ void appendDiagnostic(const std::wstring& root, const std::wstring& command, int
 
 bridge::Dependencies windowsDependencies() {
     return {readConfiguredRoot, bridge::readKnownFolderRoot, readLocalRoot, isExecutableFile, startManager,
-            [](std::uintptr_t process) { CloseHandle(reinterpret_cast<HANDLE>(process)); }, appendDiagnostic};
+            [](std::uintptr_t process) { CloseHandle(reinterpret_cast<HANDLE>(process)); }, appendDiagnostic,
+            readSnapshot};
 }
 }
 
@@ -168,7 +224,16 @@ BRIDGE_CALLBACK void Reload(void*, void*, double* maximum) noexcept {
 }
 
 BRIDGE_CALLBACK double Update(void* data) noexcept {
-    try { return data ? static_cast<bridge::Controller*>(data)->latest() : 4.0; } catch (...) { return 4.0; }
+    try {
+        if (!data) return 4.0;
+        auto* controller = static_cast<bridge::Controller*>(data);
+        controller->refreshSnapshot();
+        return controller->latest();
+    } catch (...) { return 4.0; }
+}
+
+BRIDGE_CALLBACK const wchar_t* GetString(void* data) noexcept {
+    try { return data ? static_cast<bridge::Controller*>(data)->snapshot() : L""; } catch (...) { return L""; }
 }
 
 BRIDGE_CALLBACK void ExecuteBang(void* data, const wchar_t* command) noexcept {

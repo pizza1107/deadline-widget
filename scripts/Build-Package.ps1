@@ -115,7 +115,7 @@ try {
     if ($CompilerPath) { $bridgeArguments.CompilerPath = $CompilerPath }
     $bridge = & $bridgeBuild @bridgeArguments
     if (-not $bridge -or $bridge.Architecture -cne 'PE32+ x86-64' -or
-        (($bridge.Exports | Sort-Object -CaseSensitive) -join ',') -cne 'ExecuteBang,Finalize,Initialize,Reload,Update') {
+        (($bridge.Exports | Sort-Object -CaseSensitive) -join ',') -cne 'ExecuteBang,Finalize,GetString,Initialize,Reload,Update') {
         throw 'Bridge build did not return the verified x64 export contract.'
     }
 

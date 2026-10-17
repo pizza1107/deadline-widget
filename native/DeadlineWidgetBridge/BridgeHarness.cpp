@@ -23,6 +23,7 @@ struct Scenario {
     bridge::LaunchOutcome outcome{true, 0, 123};
     std::vector<std::string> calls;
     std::wstring checkedPath, launchedPath, parameters, recordedRoot, recordedCommand;
+    std::wstring snapshotText;
     int showState = 0, recordedStatus = -1;
     unsigned long recordedError = 999;
     std::uintptr_t closedHandle = 0;
@@ -40,7 +41,8 @@ struct Scenario {
             [this](const std::wstring& base, const std::wstring& command, int status, unsigned long error) {
                 calls.push_back("record"); recordedRoot = base; recordedCommand = command;
                 recordedStatus = status; recordedError = error;
-            }
+            },
+            [this] { return snapshotText; }
         };
     }
 };
@@ -51,6 +53,9 @@ void controllerContract() {
     accepted.environmentRoot.clear();
     bridge::Controller controller(accepted.dependencies());
     expect(controller.latest() == 0, "new instance reports idle");
+    accepted.snapshotText = L"{\"version\":1}";
+    controller.refreshSnapshot();
+    expect(std::wcscmp(controller.snapshot(), accepted.snapshotText.c_str()) == 0, "controller caches snapshot text");
     controller.dispatch(L"OpenManager");
     expect(controller.latest() == 1, "accepted launch updates status to 1");
     expect(accepted.checkedPath == L"C:\\测试 用户\\Known Local Data\\DeadlineWidgetV2\\Manager\\DeadlineWidget.Manager.exe", "checks exact manager path resolved from Known Folder");
@@ -164,12 +169,15 @@ void exportContract(const wchar_t* path) {
     auto initialize = loadExport<void (*)(void**, void*)>(module, "Initialize");
     auto reload = loadExport<void (*)(void*, void*, double*)>(module, "Reload");
     auto update = loadExport<double (*)(void*)>(module, "Update");
+    auto getString = loadExport<const wchar_t* (*)(void*)>(module, "GetString");
     auto execute = loadExport<void (*)(void*, const wchar_t*)>(module, "ExecuteBang");
     auto finalize = loadExport<void (*)(void*)>(module, "Finalize");
-    expect(initialize && reload && update && execute && finalize, "loads all five exact callback names");
+    expect(initialize && reload && update && getString && execute && finalize, "loads all six exact callback names");
     void* state = nullptr;
     initialize(&state, nullptr);
     expect(state != nullptr && update(state) == 0, "Initialize creates idle state");
+    expect(std::wcscmp(getString(state), L"{\"version\":1,\"title\":\"中文路径\"}") == 0,
+           "GetString returns the UTF-8 snapshot read through a Unicode path");
     double maximum = -1;
     reload(state, nullptr, &maximum);
     expect(maximum == 4, "Reload exposes status range");
@@ -183,6 +191,7 @@ void exportContract(const wchar_t* path) {
     execute(nullptr, nullptr);
     finalize(nullptr);
     expect(update(nullptr) == 4, "null callbacks are safe and Update reports failure");
+    expect(std::wcscmp(getString(nullptr), L"") == 0, "null GetString is safe");
     expect(FreeLibrary(module) != FALSE, "unloads DLL");
 }
 

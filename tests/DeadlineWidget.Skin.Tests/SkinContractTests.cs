@@ -319,7 +319,7 @@ public sealed class SkinContractTests
     }
 
     [TestMethod]
-    public void ProductionMode_ReadsTheExpandedSettingsPathWithoutConsultingTheEnvironment()
+    public void ProductionMode_ReadsTheBridgeSnapshotWithoutConsultingTheEnvironment()
     {
         using var directory = new TestDirectory();
         var snapshotPath = Path.Combine(directory.Path, "Rainmeter", "DeadlineWidgetV2", "display.json");
@@ -333,7 +333,12 @@ public sealed class SkinContractTests
             environmentReadCount++;
             return DynValue.Nil;
         });
-        var skin = new FakeSkin(snapshotPath, string.Empty, TestNowEpoch, 1);
+        var skin = new FakeSkin(
+            snapshotPath,
+            string.Empty,
+            TestNowEpoch,
+            1,
+            bridgeSnapshot: Snapshot(Item("Future", TestNow.AddDays(1))));
         skin.Variables["TestMode"] = "0";
         script.Globals["SKIN"] = skin;
 
@@ -343,6 +348,29 @@ public sealed class SkinContractTests
         Assert.AreEqual("Future", skin.Variables["Row1Title"]);
         Assert.AreEqual("共 1 项 · 第 1/1 页", skin.Variables["StatusText"]);
         Assert.AreEqual(0, environmentReadCount);
+    }
+
+    [TestMethod]
+    public void ProductionMode_UsesBridgeSnapshotInsteadOfOpeningUnicodePath()
+    {
+        using var directory = new TestDirectory();
+        var resultPath = Path.Combine(directory.Path, "result.txt");
+        var snapshot = Snapshot(Item("Unicode profile", TestNow.AddDays(1)));
+        var script = LoadLua();
+        var skin = new FakeSkin(
+            @"C:\Users\很远很远\AppData\Roaming\Rainmeter\DeadlineWidgetV2\display.json",
+            resultPath,
+            TestNowEpoch,
+            1,
+            bridgeSnapshot: snapshot);
+        skin.Variables["TestMode"] = "0";
+        script.Globals["SKIN"] = skin;
+
+        script.Call(script.Globals.Get("Initialize"));
+        script.Call(script.Globals.Get("Update"));
+
+        Assert.AreEqual("Unicode profile", skin.Variables["Row1Title"]);
+        Assert.AreEqual("共 1 项 · 第 1/1 页", skin.Variables["StatusText"]);
     }
 
     [TestMethod]
@@ -740,9 +768,15 @@ public sealed class SkinContractTests
     {
         private readonly FakeMeasure _measure;
 
-        public FakeSkin(string snapshotPath, string resultPath, long nowEpoch, int page, int bridgeStatus = 0)
+        public FakeSkin(
+            string snapshotPath,
+            string resultPath,
+            long nowEpoch,
+            int page,
+            int bridgeStatus = 0,
+            string bridgeSnapshot = "")
         {
-            _measure = new FakeMeasure(bridgeStatus);
+            _measure = new FakeMeasure(bridgeStatus, bridgeSnapshot);
             Variables = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["@"] = Path.GetDirectoryName(RendererPath)! + Path.DirectorySeparatorChar,
@@ -790,13 +824,16 @@ public sealed class SkinContractTests
     public sealed class FakeMeasure
     {
         private double _value;
+        private readonly string _stringValue;
 
-        public FakeMeasure(double value)
+        public FakeMeasure(double value, string stringValue)
         {
             _value = value;
+            _stringValue = stringValue;
         }
 
         public double GetValue() => _value;
+        public string GetStringValue() => _stringValue;
         public void SetValue(double value) => _value = value;
     }
 

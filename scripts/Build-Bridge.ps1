@@ -70,7 +70,7 @@ function Get-BridgeExportNames {
         if ($tables -ne 1 -or $ordinals.Count -ne $names.Count) { throw 'Incomplete dumpbin export table.' }
     }
     $sortedNames = @($names | Sort-Object -CaseSensitive)
-    if ($names.Count -ne 5 -or ($sortedNames -join ',') -cne 'ExecuteBang,Finalize,Initialize,Reload,Update') { throw "Expected exactly five bridge exports; found $($names.Count): $($sortedNames -join ', ')" }
+    if ($names.Count -ne 6 -or ($sortedNames -join ',') -cne 'ExecuteBang,Finalize,GetString,Initialize,Reload,Update') { throw "Expected exactly six bridge exports; found $($names.Count): $($sortedNames -join ', ')" }
     return $sortedNames
 }
 
