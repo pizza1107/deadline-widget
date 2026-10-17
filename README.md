@@ -50,7 +50,15 @@
 
 - **桌面没有出现卡片：** 打开 Rainmeter 管理器，在皮肤列表中展开 `DeadlineWidgetV2`，选中 `DeadlineWidgetV2.ini`，点击“加载”。
 - **点击“＋”没有打开管理窗口，或底部显示“管理器不可用”：** 确认下载的是完整 `win-x64.zip`，并在解压目录重新运行 `Install-V2.ps1`。安装过程若报错，请不要将其当作安装成功。默认安装应有 `%LOCALAPPDATA%\DeadlineWidgetV2\Manager\DeadlineWidget.Manager.exe`、`%APPDATA%\Rainmeter\Plugins\DeadlineWidgetBridge.root` 和当前用户“启动”文件夹中的 `DeadlineWidgetV2 Manager.lnk`。可查看 `%LOCALAPPDATA%\DeadlineWidgetV2\logs\bridge.log`：`status=3` 表示没有找到管理器或其目录；`status=4` 表示启动失败，后面的 `error=` 是 Windows 错误码。若仍无效，请在 [Issues](https://github.com/pizza1107/deadline-widget/issues) 中说明 Windows、Rainmeter 版本和错误码，不要上传含个人路径的完整日志。
-- **PowerShell 提示脚本来自互联网而被阻止：** 确认 ZIP 来自本仓库后，在解压目录执行 `Unblock-File .\Install-V2.ps1`，再重新运行安装命令。
+- **PowerShell 提示“禁止运行脚本”或出现 `PSSecurityException`：** 这是部分 Windows 电脑的默认执行策略导致的。确认 ZIP 来自本项目的 Releases 页面后，在解压目录依次运行：
+
+  ```powershell
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+  Unblock-File .\Install-V2.ps1
+  .\Install-V2.ps1
+  ```
+
+  `Process` 只对当前 PowerShell 窗口生效，关闭窗口后失效，不会永久修改电脑设置。如果仍然被禁止，请运行 `Get-ExecutionPolicy -List`；公司或学校管理的电脑可能受到组策略限制，需要联系管理员。
 
 ## 数据与隐私
 
