@@ -234,6 +234,18 @@ $localRoot = [IO.Path]::GetFullPath($LocalAppDataRoot)
 $legacyRoot = Join-Path $localRoot 'CourseDeadlineWidget'
 $v2Root = Join-Path $localRoot 'DeadlineWidgetV2'
 $managerTarget = Join-Path $v2Root 'Manager'
+$installedManagerExecutable = [IO.Path]::GetFullPath((Join-Path $managerTarget 'DeadlineWidget.Manager.exe'))
+foreach ($candidate in @(Get-Process -Name 'DeadlineWidget.Manager' -ErrorAction SilentlyContinue)) {
+    try {
+        if ($candidate.Path -and [IO.Path]::GetFullPath($candidate.Path).Equals($installedManagerExecutable, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Close the running Deadline Widget manager in Task Manager, then run the installer again. No files were changed.'
+        }
+    }
+    finally { $candidate.Dispose() }
+}
+$startupShortcutPath = Join-Path $StartupRoot 'DeadlineWidgetV2 Manager.lnk'
+$startupShortcutBefore = if (Test-Path -LiteralPath $startupShortcutPath -PathType Leaf) { [IO.File]::ReadAllBytes($startupShortcutPath) } else { $null }
+$pluginRootBefore = if (Test-Path -LiteralPath $installedPluginRootConfig -PathType Leaf) { [IO.File]::ReadAllBytes($installedPluginRootConfig) } else { $null }
 $protectedPaths = @(
     (Join-Path $legacyRoot 'deadlines.json'),
     (Join-Path $legacyRoot 'deadlines.backup.json'),
@@ -305,7 +317,6 @@ try {
     }
     $managerExecutable = [IO.Path]::GetFullPath((Join-Path $managerTarget 'DeadlineWidget.Manager.exe'))
     [void](New-Item -ItemType Directory -Path $StartupRoot -Force)
-    $startupShortcutPath = Join-Path $StartupRoot 'DeadlineWidgetV2 Manager.lnk'
     New-UnicodeShortcut `
         -Path $startupShortcutPath `
         -TargetPath $managerExecutable `
@@ -313,10 +324,40 @@ try {
         -WorkingDirectory $managerTarget `
         -Description 'Deadline Widget background manager'
     if (-not (Test-Path -LiteralPath $startupShortcutPath -PathType Leaf)) { throw 'V2 background manager Startup shortcut was not created.' }
+    if ([DeadlineWidget.Installation.ShortcutWriter]::ReadTarget($startupShortcutPath) -cne $managerExecutable -or
+        [DeadlineWidget.Installation.ShortcutWriter]::ReadArguments($startupShortcutPath) -cne '--background') {
+        throw "V2 background manager Startup shortcut verification failed: $startupShortcutPath"
+    }
     Assert-ProtectedFileStates -ExpectedStates $protectedBefore
+    $managerProcess = $null
+    try {
+        $managerProcess = Start-Process -FilePath $managerExecutable -ArgumentList '--background' -WorkingDirectory $managerTarget -PassThru
+        if (-not $managerProcess) { throw 'Start-Process returned no process.' }
+        if ($managerProcess.WaitForExit(2000) -and $managerProcess.ExitCode -ne 0) {
+            throw "Manager exited with code $($managerProcess.ExitCode)."
+        }
+    }
+    catch {
+        throw "Background manager failed to start: $($_.Exception.Message)"
+    }
+    finally {
+        if ($managerProcess) { $managerProcess.Dispose() }
+    }
 }
 catch {
     $installError = $_
+    if ($null -eq $startupShortcutBefore) {
+        if (Test-Path -LiteralPath $startupShortcutPath -PathType Leaf) { Remove-Item -LiteralPath $startupShortcutPath -Force }
+    }
+    else {
+        [IO.File]::WriteAllBytes($startupShortcutPath, $startupShortcutBefore)
+    }
+    if ($null -eq $pluginRootBefore) {
+        if (Test-Path -LiteralPath $installedPluginRootConfig -PathType Leaf) { Remove-Item -LiteralPath $installedPluginRootConfig -Force }
+    }
+    else {
+        [IO.File]::WriteAllBytes($installedPluginRootConfig, $pluginRootBefore)
+    }
     if ($managerInstalled -and (Test-Path -LiteralPath $managerTarget)) {
         Remove-Item -LiteralPath $managerTarget -Recurse -Force
     }

@@ -20,6 +20,18 @@ public sealed class SingleInstanceCoordinatorTests
     }
 
     [TestMethod]
+    public async Task StartAsBackgroundSecondInstance_DoesNotOpenExistingWindow()
+    {
+        var platform = new FakePlatform { Acquired = false };
+        var coordinator = new SingleInstanceCoordinator(platform, () => Task.CompletedTask);
+
+        var isPrimary = await coordinator.StartAsync(activateExisting: false);
+
+        Assert.IsFalse(isPrimary);
+        Assert.IsNull(platform.SentMessage);
+    }
+
+    [TestMethod]
     public async Task PrimaryListener_ActivatesOnlyForExactMessage()
     {
         var activationCount = 0;

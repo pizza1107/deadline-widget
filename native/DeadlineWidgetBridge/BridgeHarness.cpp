@@ -1,6 +1,7 @@
 #include "BridgeCore.h"
 #include <windows.h>
 #include <cstring>
+#include <cwchar>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -184,10 +185,32 @@ void exportContract(const wchar_t* path) {
     expect(update(nullptr) == 4, "null callbacks are safe and Update reports failure");
     expect(FreeLibrary(module) != FALSE, "unloads DLL");
 }
+
+void launchContract(const wchar_t* path) {
+    HMODULE module = LoadLibraryW(path);
+    expect(module != nullptr, "loads bridge DLL for Unicode-path launch");
+    auto initialize = loadExport<void (*)(void**, void*)>(module, "Initialize");
+    auto update = loadExport<double (*)(void*)>(module, "Update");
+    auto execute = loadExport<void (*)(void*, const wchar_t*)>(module, "ExecuteBang");
+    auto finalize = loadExport<void (*)(void*)>(module, "Finalize");
+    expect(initialize && update && execute && finalize, "loads launch callbacks");
+    void* state = nullptr;
+    initialize(&state, nullptr);
+    expect(state != nullptr, "initializes bridge launch state");
+    execute(state, L"OpenManager");
+    expect(update(state) == 1, "real bridge starts the Unicode-path manager");
+    finalize(state);
+    expect(FreeLibrary(module) != FALSE, "unloads bridge after launch");
+}
 }
 
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 3 && std::wcscmp(argv[2], L"--launch") == 0) {
+            launchContract(argv[1]);
+            std::cout << "PASS: " << assertions << " real-DLL launch assertions\n";
+            return 0;
+        }
         expect(argc == 2, "requires DLL path for integration checks");
         knownFolderProviderContract();
         controllerContract();

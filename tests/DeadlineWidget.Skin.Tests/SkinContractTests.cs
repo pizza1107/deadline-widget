@@ -103,7 +103,7 @@ public sealed class SkinContractTests
     }
 
     [TestMethod]
-    public void Ini_AllowsOnlyThePlusToClickAndWritesTheManagerWakeupSignal()
+    public void Ini_AllowsOnlyThePlusToClickAndLaunchesManagerThroughBridge()
     {
         var ini = ReadIni();
 
@@ -113,8 +113,8 @@ public sealed class SkinContractTests
         StringAssert.Contains(ini, "Text=＋");
         var clickActions = Regex.Matches(ini, @"(?m)^LeftMouse(?:Up|Down)Action=(.*)$");
         Assert.AreEqual(1, clickActions.Count);
-        StringAssert.Contains(ini, "[MeasureWakeSignal]");
-        Assert.AreEqual("[!UpdateMeasure MeasureWakeSignal][!WriteKeyValue Variables OpenRequest \"[MeasureWakeSignal]\" \"#SETTINGSPATH#DeadlineWidgetV2\\manager-request.ini\"]", clickActions[0].Groups[1].Value);
+        Assert.AreEqual("[!CommandMeasure MeasureBridge \"OpenManager\"][!UpdateMeasure MeasureBridge][!UpdateMeasure MeasureScript][!Redraw]", clickActions[0].Groups[1].Value);
+        Assert.IsFalse(ini.Contains("manager-request.ini", StringComparison.Ordinal));
         for (var index = 1; index <= 5; index++)
         {
             foreach (var suffix in new[] { "Title", "Due", "Countdown" })
@@ -141,7 +141,7 @@ public sealed class SkinContractTests
         StringAssert.Contains(hitTarget, "X=196");
         StringAssert.Contains(hitTarget, "Y=6");
         StringAssert.Contains(hitTarget, "Shape=Rectangle 0,0,40,36 | Fill Color 0,0,0,1 | StrokeWidth 0");
-        StringAssert.Contains(hitTarget, "LeftMouseUpAction=[!UpdateMeasure MeasureWakeSignal][!WriteKeyValue Variables OpenRequest \"[MeasureWakeSignal]\" \"#SETTINGSPATH#DeadlineWidgetV2\\manager-request.ini\"]");
+        StringAssert.Contains(hitTarget, "LeftMouseUpAction=[!CommandMeasure MeasureBridge \"OpenManager\"][!UpdateMeasure MeasureBridge][!UpdateMeasure MeasureScript][!Redraw]");
         Assert.IsTrue(
             ini.IndexOf("[MeterAdd]\n", StringComparison.Ordinal) < ini.IndexOf("[MeterAddHitTarget]\n", StringComparison.Ordinal),
             "The transparent hit target must be drawn after the plus so it receives the click.");

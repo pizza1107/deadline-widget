@@ -36,7 +36,7 @@ public sealed class SingleInstanceCoordinator : IDisposable, IAsyncDisposable
         _diagnostics = diagnostics ?? NullDiagnosticSink.Instance;
     }
 
-    public async Task<bool> StartAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> StartAsync(bool activateExisting = true, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_listenerTask is not null || _ownsMutex)
@@ -47,7 +47,10 @@ public sealed class SingleInstanceCoordinator : IDisposable, IAsyncDisposable
         _ownsMutex = _platform.TryAcquireMutex(MutexName);
         if (!_ownsMutex)
         {
-            await _platform.SendAsync(PipeName, ActivationMessage, cancellationToken);
+            if (activateExisting)
+            {
+                await _platform.SendAsync(PipeName, ActivationMessage, cancellationToken);
+            }
             return false;
         }
 

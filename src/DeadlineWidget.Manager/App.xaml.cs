@@ -26,6 +26,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var background = e.Args.Contains("--background", StringComparer.OrdinalIgnoreCase);
 
         var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var diagnostics = new FileDiagnosticSink(Path.Combine(localApplicationData, "DeadlineWidgetV2", "logs"));
@@ -37,7 +38,7 @@ public partial class App : Application
 
         try
         {
-            if (!await _coordinator.StartAsync())
+            if (!await _coordinator.StartAsync(activateExisting: !background))
             {
                 await _coordinator.DisposeAsync();
                 Shutdown();
@@ -60,7 +61,7 @@ public partial class App : Application
             _mainWindow = new MainWindow(viewModel, closeCoordinator, _requestApplicationExit);
             MainWindow = _mainWindow;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
-            if (!e.Args.Contains("--background", StringComparer.OrdinalIgnoreCase))
+            if (!background)
             {
                 _mainWindow.Show();
             }
@@ -72,13 +73,17 @@ public partial class App : Application
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
-                $"截止日期管理器无法启动：{exception.Message}",
-                "DeadlineWidget V2",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            try { diagnostics.Write("startup", exception); } catch { }
+            if (!background)
+            {
+                MessageBox.Show(
+                    $"截止日期管理器无法启动：{exception.Message}",
+                    "DeadlineWidget V2",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
             await DisposeCoordinatorAsync();
-            Shutdown();
+            Shutdown(1);
         }
     }
 

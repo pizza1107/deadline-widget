@@ -90,6 +90,8 @@ Write-Host "PASS: $script:exportAssertions export-table fixtures"
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) ('DeadlineWidgetBridge.Tests-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testDirectory)
 $savedLocalAppData = $env:LOCALAPPDATA
+$savedFakeManagerLog = $env:FAKE_MANAGER_LOG
+$savedFakeManagerExitCode = $env:FAKE_MANAGER_EXIT_CODE
 try {
     $buildArguments = @{ OutputDirectory = Join-Path $testDirectory 'Production/Plugins/64bit' }
     if ($CompilerPath) { $buildArguments.CompilerPath = $CompilerPath }
@@ -143,6 +145,40 @@ try {
     }
     $outputs = @(Get-ChildItem -LiteralPath $env:LOCALAPPDATA -Recurse -File)
     if ($outputs.Count -ne 2 -or $outputs.FullName -notcontains $diagnosticPath -or $outputs.FullName -notcontains $backupPath) { throw 'Bridge wrote outside its bounded log destinations.' }
+    $managerPath = Join-Path $env:LOCALAPPDATA 'DeadlineWidgetV2/Manager/DeadlineWidget.Manager.exe'
+    Remove-Item -LiteralPath $managerPath -Recurse -Force
+    & $build.Compiler '-std=c++17' '-municode' '-mwindows' '-static-libgcc' '-static-libstdc++' (Join-Path $v2Directory 'tests/FakeManager.cpp') '-o' $managerPath
+    if ($LASTEXITCODE -ne 0) { throw 'Could not compile the Unicode-path test manager.' }
+    $env:FAKE_MANAGER_LOG = Join-Path $testDirectory 'Bridge launch 中文.log'
+    $env:FAKE_MANAGER_EXIT_CODE = '0'
+    & $harness $testDll '--launch'
+    if ($LASTEXITCODE -ne 0) { throw 'Bridge failed to launch manager through the Local AppData fallback.' }
+    for ($attempt = 0; $attempt -lt 20 -and -not (Test-Path -LiteralPath $env:FAKE_MANAGER_LOG -PathType Leaf); $attempt++) {
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path -LiteralPath $env:FAKE_MANAGER_LOG -PathType Leaf) -or
+        [IO.File]::ReadAllText($env:FAKE_MANAGER_LOG, [Text.Encoding]::UTF8).IndexOf('--activate', [StringComparison]::Ordinal) -lt 0) {
+        throw 'Bridge did not launch the Unicode-path manager with --activate.'
+    }
+    $configuredRoot = Join-Path $testDirectory 'Configured Local Data 中文'
+    $configuredManager = Join-Path $configuredRoot 'DeadlineWidgetV2/Manager/DeadlineWidget.Manager.exe'
+    [void](New-Item -ItemType Directory -Path (Split-Path $configuredManager -Parent) -Force)
+    Copy-Item -LiteralPath $managerPath -Destination $configuredManager
+    Remove-Item -LiteralPath $managerPath -Force
+    [IO.File]::WriteAllText((Join-Path $testPluginDirectory 'DeadlineWidgetBridge.root'), $configuredRoot, [Text.UTF8Encoding]::new($false))
+    Remove-Item -LiteralPath $env:FAKE_MANAGER_LOG -Force
+    & $harness $testDll '--launch'
+    for ($attempt = 0; $attempt -lt 20 -and -not (Test-Path -LiteralPath $env:FAKE_MANAGER_LOG -PathType Leaf); $attempt++) {
+        Start-Sleep -Milliseconds 100
+    }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $env:FAKE_MANAGER_LOG -PathType Leaf)) {
+        throw 'Bridge did not launch through its Unicode root configuration.'
+    }
+    $configuredCommand = [IO.File]::ReadAllText($env:FAKE_MANAGER_LOG, [Text.Encoding]::UTF8)
+    if ($configuredCommand.IndexOf($configuredManager, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+        $configuredCommand.IndexOf('--activate', [StringComparison]::Ordinal) -lt 0) {
+        throw 'Bridge root configuration launched the wrong manager or omitted --activate.'
+    }
     Write-Host 'PASS: 7 diagnostic checks; absent and directory manager paths rejected; oversized log rotated'
     Write-Host "Test-only exports ($($testExports.Count)): $($testExports -join ', ')"
     Write-Host 'Test-only architecture: PE32+ x86-64'
@@ -150,6 +186,8 @@ try {
     Write-Host "Architecture: $($build.Architecture)"
 } finally {
     $env:LOCALAPPDATA = $savedLocalAppData
+    $env:FAKE_MANAGER_LOG = $savedFakeManagerLog
+    $env:FAKE_MANAGER_EXIT_CODE = $savedFakeManagerExitCode
     $resolvedTestDirectory = [IO.Path]::GetFullPath($testDirectory)
     $resolvedTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
     if (-not $resolvedTestDirectory.StartsWith($resolvedTempRoot, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path $resolvedTestDirectory -Leaf) -notlike 'DeadlineWidgetBridge.Tests-*') { throw 'Refusing cleanup outside the test temporary directory.' }

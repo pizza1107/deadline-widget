@@ -99,6 +99,9 @@ $savedFakeSkinTarget = $env:FAKE_SKIN_TARGET
 $savedFakePluginSource = $env:FAKE_PLUGIN_SOURCE
 $savedFakePluginTarget = $env:FAKE_PLUGIN_TARGET
 $savedFakeProtectedPath = $env:FAKE_PROTECTED_PATH
+$savedFakeManagerLog = $env:FAKE_MANAGER_LOG
+$savedFakeManagerExitCode = $env:FAKE_MANAGER_EXIT_CODE
+$savedFakeManagerWait = $env:FAKE_MANAGER_WAIT_MS
 try {
     $releaseRoot = Join-Path $testRoot 'release'
     $skinSource = Join-Path $testRoot 'skin-source/DeadlineWidgetV2'
@@ -247,7 +250,11 @@ try {
 
     $installRelease = Join-Path $testRoot 'install-release'
     [void](New-Item -ItemType Directory -Path (Join-Path $installRelease 'Manager') -Force)
-    [IO.File]::WriteAllText((Join-Path $installRelease 'Manager/DeadlineWidget.Manager.exe'), 'NEW-MANAGER')
+    $fakeManager = Join-Path $installRelease 'Manager/DeadlineWidget.Manager.exe'
+    & $CompilerPath '-std=c++17' '-municode' '-mwindows' '-static-libgcc' '-static-libstdc++' (Join-Path $v2Root 'tests/FakeManager.cpp') '-o' $fakeManager
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $fakeManager -PathType Leaf)) {
+        throw 'Could not compile the test manager executable.'
+    }
     [IO.File]::WriteAllText((Join-Path $installRelease 'Manager/manager-component.dll'), 'NEW-COMPONENT')
     Copy-Item -LiteralPath $packagePath -Destination (Join-Path $installRelease 'DeadlineWidgetV2.rmskin')
     $fakeInstaller = Join-Path $testRoot 'FakeSkinInstaller.cmd'
@@ -306,6 +313,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     $env:FAKE_PLUGIN_SOURCE = $pluginPath
     $env:FAKE_PLUGIN_TARGET = $installedPluginRoot
     $env:FAKE_PROTECTED_PATH = $v2Backup
+    $env:FAKE_MANAGER_LOG = Join-Path $testRoot 'Manager startup 中文.log'
+    $env:FAKE_MANAGER_EXIT_CODE = '0'
+    $env:FAKE_MANAGER_WAIT_MS = '0'
     $installArguments = @{
         ReleaseDirectory = $installRelease
         LocalAppDataRoot = $localRoot
@@ -321,7 +331,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     Assert-True (-not (Test-Path -LiteralPath $v2Backup)) 'Installer created a protected deadline file that was absent at start.'
     Assert-Equal 'KEEP-LEGACY-DIRECTORY' ([IO.File]::ReadAllText((Join-Path $legacyRoot 'legacy-sentinel.txt'))) 'Installer changed the legacy data directory.'
     Assert-Equal 'KEEP-LEGACY-SKIN' ([IO.File]::ReadAllText((Join-Path $legacySkinRoot 'legacy-sentinel.txt'))) 'Installer changed the legacy Rainmeter skin.'
-    Assert-Equal 'NEW-MANAGER' ([IO.File]::ReadAllText((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) 'Installed manager does not match the release.'
+    Assert-Equal (Get-FileSha256 $fakeManager) (Get-FileSha256 (Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe')) 'Installed manager does not match the release.'
+    Assert-True (Test-Path -LiteralPath $env:FAKE_MANAGER_LOG -PathType Leaf) 'Fresh installation must launch the background manager without a restart.'
+    Assert-True ([IO.File]::ReadAllText($env:FAKE_MANAGER_LOG, [Text.Encoding]::UTF8).IndexOf('--background', [StringComparison]::Ordinal) -ge 0) 'Fresh installation must launch manager in background mode.'
     Assert-Equal (Get-FileSha256 $stagedIni) (Get-FileSha256 (Join-Path $installedSkinRoot 'DeadlineWidgetV2/DeadlineWidgetV2.ini')) 'Installed V2 skin did not satisfy the package postcondition.'
     Assert-Equal (Get-FileSha256 $pluginPath) (Get-FileSha256 (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.dll')) 'Without -PluginRoot, the installed plugin must be verified under the isolated APPDATA Rainmeter Plugins directory.'
     Assert-Equal ([IO.Path]::GetFullPath($localRoot)) ([IO.File]::ReadAllText((Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'), [Text.UTF8Encoding]::new($false)).Trim()) 'Installer must persist the absolute Local AppData root beside the plugin.'
@@ -349,12 +361,52 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         if (Test-Path -LiteralPath (Join-Path $installedSkinRoot 'DeadlineWidgetV2')) { Remove-Item -LiteralPath (Join-Path $installedSkinRoot 'DeadlineWidgetV2') -Recurse -Force }
         if (Test-Path -LiteralPath (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.dll')) { Remove-Item -LiteralPath (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.dll') -Force }
         if (Test-Path -LiteralPath (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root')) { Remove-Item -LiteralPath (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root') -Force }
+        if (Test-Path -LiteralPath $startupShortcut -PathType Leaf) { Remove-Item -LiteralPath $startupShortcut -Force }
     }
     function Assert-ManagerRolledBack {
         param([string]$Label)
         Assert-Equal "OLD-$Label" ([IO.File]::ReadAllText((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) "Manager was not restored after $Label."
         Assert-Equal "KEEP-$Label" ([IO.File]::ReadAllText((Join-Path $v2DataRoot 'Manager/rollback-sentinel.txt'))) "Manager sentinel was not restored after $Label."
     }
+
+
+    $runningManager = $null
+    try {
+        $env:FAKE_MANAGER_WAIT_MS = '10000'
+        $runningManager = Start-Process -FilePath (Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe') -PassThru
+        Start-Sleep -Milliseconds 300
+        $env:FAKE_MANAGER_WAIT_MS = '0'
+        Assert-InstallFails $installArguments '*Close the running Deadline Widget manager*'
+        Assert-Equal (Get-FileSha256 $fakeManager) (Get-FileSha256 (Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe')) 'Running-manager preflight modified the installed executable.'
+    }
+    finally {
+        if ($runningManager) {
+            if (-not $runningManager.HasExited) { $runningManager.Kill() }
+            [void]$runningManager.WaitForExit(5000)
+            $runningManager.Dispose()
+        }
+        $env:FAKE_MANAGER_WAIT_MS = '0'
+    }
+
+    Set-RollbackManager 'START-FAIL'
+    $env:FAKE_MANAGER_EXIT_CODE = '23'
+    $shortcutBefore = [IO.File]::ReadAllBytes($startupShortcut)
+    $rootBefore = [IO.File]::ReadAllBytes((Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'))
+    Assert-InstallFails $installArguments '*Background manager failed to start*'
+    Assert-ManagerRolledBack 'START-FAIL'
+    Assert-BytesEqual $shortcutBefore ([IO.File]::ReadAllBytes($startupShortcut)) 'Failed upgrade did not restore the previous Startup shortcut.'
+    Assert-BytesEqual $rootBefore ([IO.File]::ReadAllBytes((Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'))) 'Failed upgrade did not restore the previous bridge root config.'
+    foreach ($path in $protectedFiles) {
+        Assert-Equal $beforeHashes[$path] (Get-FileSha256 $path) "Failed manager start changed protected deadline bytes at $path."
+    }
+    $env:FAKE_MANAGER_EXIT_CODE = '0'
+
+    Reset-InstalledComponents
+    $env:FAKE_MANAGER_EXIT_CODE = '23'
+    Assert-InstallFails $installArguments '*Background manager failed to start*'
+    Assert-True (-not (Test-Path -LiteralPath $startupShortcut)) 'Failed fresh-style install left a broken Startup shortcut.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'))) 'Failed fresh-style install left a bridge root config.'
+    $env:FAKE_MANAGER_EXIT_CODE = '0'
 
     Reset-InstalledComponents
     [void](New-Item -ItemType Directory -Path (Join-Path $installedSkinRoot 'DeadlineWidgetV2') -Force)
@@ -368,6 +420,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     Assert-Equal (Get-FileSha256 $stagedIni) (Get-FileSha256 (Join-Path $installedSkinRoot 'DeadlineWidgetV2/DeadlineWidgetV2.ini')) 'The delayed GUI installer skin result was not verified after process completion.'
     Assert-Equal (Get-FileSha256 $pluginPath) (Get-FileSha256 (Join-Path $installedPluginRoot 'DeadlineWidgetBridge.dll')) 'The delayed GUI installer plugin result was not verified after process completion.'
     Assert-Equal ([IO.Path]::GetFullPath($localRoot)) ([IO.File]::ReadAllText((Join-Path $installedPluginRoot 'DeadlineWidgetBridge.root'), [Text.UTF8Encoding]::new($false)).Trim()) 'The delayed installer must persist the bridge root configuration.'
+    Assert-Equal ([IO.Path]::GetFullPath((Join-Path $v2DataRoot 'Manager/DeadlineWidget.Manager.exe'))) ([DeadlineWidget.Installation.ShortcutWriter]::ReadTarget($startupShortcut)) 'Repair install must recreate a missing Startup shortcut.'
 
     Reset-InstalledComponents
     Set-RollbackManager 'CANCEL'
@@ -443,6 +496,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     $env:FAKE_PLUGIN_SOURCE = $savedFakePluginSource
     $env:FAKE_PLUGIN_TARGET = $savedFakePluginTarget
     $env:FAKE_PROTECTED_PATH = $savedFakeProtectedPath
+    $env:FAKE_MANAGER_LOG = $savedFakeManagerLog
+    $env:FAKE_MANAGER_EXIT_CODE = $savedFakeManagerExitCode
+    $env:FAKE_MANAGER_WAIT_MS = $savedFakeManagerWait
     if ($delayedGuiInstaller) {
         foreach ($process in [Diagnostics.Process]::GetProcessesByName([IO.Path]::GetFileNameWithoutExtension($delayedGuiInstaller))) {
             try {
