@@ -12,7 +12,7 @@
 适用于 64 位 Windows 10 或 Windows 11。需要先安装 [Rainmeter 4.5 或更新版本](https://www.rainmeter.net/)；不需要单独安装 .NET。
 
 1. 从本项目的 [Releases 页面](https://github.com/pizza1107/deadline-widget/releases)下载名称含 `win-x64.zip` 的完整压缩包。
-2. 将 ZIP **全部解压**到一个文件夹，保留其中的 `Manager` 文件夹、`.rmskin` 和两个 `.ps1` 文件。不要只下载或双击 `.rmskin`：它仅安装皮肤和桥接插件，不会安装管理器。
+2. 将 ZIP **全部解压**
 3. 在文件资源管理器中打开解压后的文件夹，在地址栏输入 `powershell` 并按回车，然后运行：
 
    ```powershell
@@ -34,9 +34,9 @@
 
 ## 升级与卸载
 
-升级时下载新版完整 ZIP，解压后再次运行其中的 `Install-V2.ps1`。已有任务会保留。升级前，请在任务管理器中结束 `DeadlineWidget.Manager` 进程；如果它仍在运行，安装器会明确报错并停止，以免旧版管理器继续占用文件。
+升级时下载新版ZIP，解压后再次运行其中的 `Install-V2.ps1`。已有任务会保留。升级前，请在任务管理器中结束 `DeadlineWidget.Manager` 进程；如果它仍在运行，安装器会明确报错并停止。
 
-如果你已安装 v0.1.0，修复版发布后也要下载**新版完整 ZIP**并重新运行 `Install-V2.ps1`；只替换 `.rmskin` 无法补齐管理器和启动项。安装脚本会核对任务文件和备份未被修改。
+如果你已安装 v0.1.0，修复版发布后也要下载**新版ZIP**并重新运行 `Install-V2.ps1`；只替换 `.rmskin` 无法补齐管理器和启动项。安装脚本会核对任务文件和备份未被修改。
 
 卸载时，在解压后的文件夹运行：
 
@@ -58,7 +58,7 @@
   .\Install-V2.ps1
   ```
 
-  `Process` 只对当前 PowerShell 窗口生效，关闭窗口后失效，不会永久修改电脑设置。如果仍然被禁止，请运行 `Get-ExecutionPolicy -List`；公司或学校管理的电脑可能受到组策略限制，需要联系管理员。
+  `Process` 只对当前 PowerShell 窗口生效，关闭窗口后失效，不会永久修改电脑设置。如果仍然被禁止，请运行 `Get-ExecutionPolicy -List`；
 
 ## 数据与隐私
 
