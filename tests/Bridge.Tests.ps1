@@ -147,8 +147,10 @@ try {
     if ($outputs.Count -ne 2 -or $outputs.FullName -notcontains $diagnosticPath -or $outputs.FullName -notcontains $backupPath) { throw 'Bridge wrote outside its bounded log destinations.' }
     $managerPath = Join-Path $env:LOCALAPPDATA 'DeadlineWidgetV2/Manager/DeadlineWidget.Manager.exe'
     Remove-Item -LiteralPath $managerPath -Recurse -Force
-    & $build.Compiler '-std=c++17' '-municode' '-mwindows' '-static-libgcc' '-static-libstdc++' (Join-Path $v2Directory 'tests/FakeManager.cpp') '-o' $managerPath
+    $compiledManager = Join-Path $testDirectory 'FakeManager.exe'
+    & $build.Compiler '-std=c++17' '-municode' '-mwindows' '-static-libgcc' '-static-libstdc++' (Join-Path $v2Directory 'tests/FakeManager.cpp') '-o' $compiledManager
     if ($LASTEXITCODE -ne 0) { throw 'Could not compile the Unicode-path test manager.' }
+    Copy-Item -LiteralPath $compiledManager -Destination $managerPath
     $env:FAKE_MANAGER_LOG = Join-Path $testDirectory 'Bridge launch 中文.log'
     $env:FAKE_MANAGER_EXIT_CODE = '0'
     & $harness $testDll '--launch'
